@@ -695,7 +695,7 @@ class Customer(StripeObject):
         obj.sources._list.remove(source_obj)
         source_obj.customer = None
 
-        if obj.default_source is source_obj.id:
+        if obj.default_source == source_obj.id:
             obj.default_source = None
             for source in obj.sources._list:
                 obj.default_source = source.id
