@@ -588,6 +588,23 @@ class Customer(StripeObject):
         return source_obj
 
     @classmethod
+    def _api_update_source(cls, id, source_id, **data):
+        # return 404 if does not exist
+        Customer._api_retrieve(id)
+
+        if type(source_id) is str and source_id.startswith('src_'):
+            source_obj = Source._api_retrieve(source_id)
+        elif type(source_id) is str and source_id.startswith('card_'):
+            source_obj = Card._api_retrieve(source_id)
+            if source_obj.customer != id:
+                raise UserError(404, 'This customer does not own this card')
+        else:
+            raise UserError(400, 'Bad request')
+
+        source_obj._update(**data)
+        return source_obj
+
+    @classmethod
     def _api_add_source(cls, id, source=None, **kwargs):
         if kwargs:
             raise UserError(400, 'Unexpected ' + ', '.join(kwargs.keys()))
@@ -657,6 +674,9 @@ extra_apis.extend((
     # Retrieve single source by id:
     ('GET', '/v1/customers/{id}/sources/{source_id}',
      Customer._api_retrieve_source),
+    # Update single source by id:
+    ('POST', '/v1/customers/{id}/sources/{source_id}',
+     Customer._api_update_source),
     # This is the old API route:
     ('POST', '/v1/customers/{id}/cards', Customer._api_add_source),
     ('POST', '/v1/customers/{id}/tax_ids', Customer._api_add_tax_id),
