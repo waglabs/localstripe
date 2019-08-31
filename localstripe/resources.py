@@ -696,10 +696,10 @@ class Customer(StripeObject):
         source_obj.customer = None
 
         if obj.default_source is source_obj.id:
-            if len(obj.sources._list) >= 1:
-                obj.default_source = obj.sources._list[0].id
-            else:
-                obj.default_source = None
+            obj.default_source = None
+            for source in obj.sources._list:
+                obj.default_source = source.id
+                break;
 
         return obj
 
