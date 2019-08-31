@@ -626,6 +626,43 @@ class Customer(StripeObject):
         return source_obj
 
     @classmethod
+    def _api_remove_source(cls, id, source_id, **kwargs):
+        print(source_id)
+        if kwargs:
+            raise UserError(400, 'Unexpected ' + ', '.join(kwargs.keys()))
+
+        try:
+            assert type(source_id) is str
+            assert (source_id.startswith('pm_') or
+                    source_id.startswith('src_') or
+                    source_id.startswith('card_'))
+        except AssertionError:
+            raise UserError(400, 'Bad request')
+
+        obj = cls._api_retrieve(id)
+
+        if type(source_id) is str and source_id.startswith('src_'):
+            source_obj = Source._api_retrieve(source_id)
+        elif type(source_id) is str and source_id.startswith('pm_'):
+            source_obj = PaymentMethod._api_retrieve(source_id)
+        elif type(source_id) is str and source_id.startswith('card_'):
+            source_obj = Card._api_retrieve(source_id)
+
+        if source_id is None:
+            raise UserError(400, 'Bad Request')
+
+        obj.sources._list.remove(source_obj)
+        source_obj.customer = None
+
+        if obj.default_source is source_obj.id:
+            if len(obj.sources._list) >= 1:
+                obj.default_source = obj.sources._list[0].id
+            else:
+                obj.default_source = None
+
+        return obj
+
+    @classmethod
     def _api_add_tax_id(cls, id, type=None, value=None, **kwargs):
         if kwargs:
             raise UserError(400, 'Unexpected ' + ', '.join(kwargs.keys()))
@@ -657,6 +694,9 @@ extra_apis.extend((
     # Retrieve single source by id:
     ('GET', '/v1/customers/{id}/sources/{source_id}',
      Customer._api_retrieve_source),
+    # Delete single source by id:
+    ('DELETE', '/v1/customers/{id}/sources/{source_id}',
+     Customer._api_remove_source),
     # This is the old API route:
     ('POST', '/v1/customers/{id}/cards', Customer._api_add_source),
     ('POST', '/v1/customers/{id}/tax_ids', Customer._api_add_tax_id),
