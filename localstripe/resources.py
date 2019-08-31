@@ -429,7 +429,8 @@ class Charge(StripeObject):
 
         def on_success():
             obj.captured = True
-            obj.amount = amount
+            if amount < obj.amount:
+                Refund(obj, obj.amount - amount)
 
         obj._trigger_payment(on_success)
         return obj
