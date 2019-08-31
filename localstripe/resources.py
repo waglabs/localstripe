@@ -351,6 +351,9 @@ class Charge(StripeObject):
             elif source.startswith('card_'):
                 source = Card._api_retrieve(source)
 
+        if source._charging_is_declined():
+            raise UserError(402, 'Your card was declined')
+
         if customer is None:
             customer = source.customer
 
