@@ -1558,9 +1558,7 @@ class PaymentMethod(StripeObject):
                                      '4000008400001629')
 
     def _attaching_is_declined(self):
-        return self._card_number in ('4000000000000002',
-                                     '4000000000009995',
-                                     '4000000000009987',
+        return self._card_number in ('4000000000009987',
                                      '4000000000009979',
                                      '4000000000000069',
                                      '4000000000000127',
@@ -1568,9 +1566,13 @@ class PaymentMethod(StripeObject):
                                      '4242424242424241')
 
     def _charging_is_declined(self):
-        return self._card_number in ('4000000000000341',
+        return self._card_number in ('4000000000000002',
+                                     '4000000000000127',
+                                     '4000000000000341',
+                                     '4000000000009995',
                                      '4000008260003178',
-                                     '4000008400001629')
+                                     '4000008400001629',
+                                     '4100000000000019')
 
     @classmethod
     def _api_attach(cls, id, customer=None, **kwargs):
@@ -2387,6 +2389,17 @@ class Token(StripeObject):
     object = 'token'
     _id_prefix = 'tok_'
 
+    test_token_map = {
+        'tok_visa': '4242424242424242',
+        'tok_visa_debit': '4000056655665556',
+        'tok_mastercard': '5555555555554444',
+        'tok_chargeCustomerFail': '4000000000000341',
+        'tok_chargeDeclinedInsufficientFunds': '4000000000009995',
+        'tok_chargeDeclinedFraudulent': '4100000000000019',
+        'tok_chargeDeclinedIncorrectCvc': '4000000000000127',
+        'tok_chargeDeclined': '4000000000000002'
+    }
+
     def __init__(self, card=None, customer=None, **kwargs):
         if kwargs:
             raise UserError(400, 'Unexpected ' + ', '.join(kwargs.keys()))
@@ -2409,3 +2422,15 @@ class Token(StripeObject):
 
         self.type = 'card'
         self.card = card_obj
+
+    @classmethod
+    def _api_retrieve(cls, id):
+        if id in Token.test_token_map.keys():
+            return Token({
+                'number': Token.test_token_map[id],
+                'exp_month': 6,
+                'exp_year': 2019,
+                'cvc': '333'
+            })
+
+        return super()._api_retrieve(id)
