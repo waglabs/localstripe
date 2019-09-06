@@ -635,20 +635,8 @@ class Customer(StripeObject):
 
     @classmethod
     def _api_update_source(cls, id, source_id, **data):
-        # return 404 if does not exist
-        Customer._api_retrieve(id)
-
-        if type(source_id) is str and source_id.startswith('src_'):
-            source_obj = Source._api_retrieve(source_id)
-        elif type(source_id) is str and source_id.startswith('card_'):
-            source_obj = Card._api_retrieve(source_id)
-            if source_obj.customer != id:
-                raise UserError(404, 'This customer does not own this card')
-        else:
-            raise UserError(400, 'Bad request')
-
-        source_obj._update(**data)
-        return source_obj
+        source_obj = cls._api_retrieve_source(id, source_id)
+        return type(source_obj)._api_update(source_id, **data)
 
     @classmethod
     def _api_add_source(cls, id, source=None, **kwargs):
@@ -690,38 +678,17 @@ class Customer(StripeObject):
 
     @classmethod
     def _api_remove_source(cls, id, source_id, **kwargs):
-        print(source_id)
-        if kwargs:
-            raise UserError(400, 'Unexpected ' + ', '.join(kwargs.keys()))
-
-        try:
-            assert type(source_id) is str
-            assert (source_id.startswith('pm_') or
-                    source_id.startswith('src_') or
-                    source_id.startswith('card_'))
-        except AssertionError:
-            raise UserError(400, 'Bad request')
-
         obj = cls._api_retrieve(id)
+        source_obj = cls._api_retrieve_source(id, source_id)
 
-        if type(source_id) is str and source_id.startswith('src_'):
-            source_obj = Source._api_retrieve(source_id)
-        elif type(source_id) is str and source_id.startswith('pm_'):
-            source_obj = PaymentMethod._api_retrieve(source_id)
-        elif type(source_id) is str and source_id.startswith('card_'):
-            source_obj = Card._api_retrieve(source_id)
-
-        if source_id is None:
-            raise UserError(400, 'Bad Request')
-
+        type(source_obj)._api_delete(source_id)
         obj.sources._list.remove(source_obj)
-        source_obj.customer = None
 
         if obj.default_source == source_obj.id:
             obj.default_source = None
             for source in obj.sources._list:
                 obj.default_source = source.id
-                break;
+                break
 
         return obj
 
