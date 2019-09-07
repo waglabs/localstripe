@@ -1517,7 +1517,9 @@ class PaymentMethod(StripeObject):
                                      '4000008400001629')
 
     def _attaching_is_declined(self):
-        return self._card_number in ('4000000000009987',
+        return self._card_number in ('4000000000000002',
+                                     '4000000000009995',
+                                     '4000000000009987',
                                      '4000000000009979',
                                      '4000000000000069',
                                      '4000000000000127',
@@ -2348,7 +2350,7 @@ class Token(StripeObject):
     object = 'token'
     _id_prefix = 'tok_'
 
-    test_token_map = {
+    _test_token_map = {
         'tok_visa': '4242424242424242',
         'tok_visa_debit': '4000056655665556',
         'tok_mastercard': '5555555555554444',
@@ -2384,9 +2386,9 @@ class Token(StripeObject):
 
     @classmethod
     def _api_retrieve(cls, id):
-        if id in Token.test_token_map.keys():
+        if id in Token._test_token_map.keys():
             return Token({
-                'number': Token.test_token_map[id],
+                'number': Token._test_token_map[id],
                 'exp_month': 6,
                 'exp_year': 2019,
                 'cvc': '333'
