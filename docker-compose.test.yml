@@ -1,3 +1,6 @@
 sut:
   build: .
-  command: test.sh
+  command: >
+    apk update &&
+    apk add bash curl &&
+    ./test.sh
