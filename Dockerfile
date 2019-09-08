@@ -1,7 +1,6 @@
 FROM python:3-alpine
 RUN mkdir /app
 ADD . /app
-WORKDIR /app
-RUN python3 setup.py install
+RUN cd /app && python3 setup.py install && rm -rf /app
 EXPOSE 8420
 CMD ["localstripe"]

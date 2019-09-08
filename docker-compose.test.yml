@@ -1,6 +1,11 @@
 sut:
   build: .
-  command: >
-    apk update
-    && apk add bash curl
-    && ./test.sh
+  volumes:
+    - ./test.sh:/test.sh
+  command: sh -c "
+      localstripe &
+      apk update &&
+      apk add bash curl wait4ports &&
+      wait4ports tcp://localhost:8420 &&
+      /test.sh
+    "
