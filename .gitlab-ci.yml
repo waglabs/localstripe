@@ -1,0 +1,46 @@
+image: gitlab-registry.wag-ops01.net:5678/waglabs/wag-packer/gitlab-runner:latest
+
+variables:
+  DOCKER_DRIVER: overlay2
+  BUILD_PATH: /builds/waglabs/localstripe
+  GIT_STRATEGY: fetch
+  GIT_DEPTH: "3"
+  IMAGE_NAME: localstripe
+  IMAGE_TAG: latest
+  BASE_IMAGE: $IMAGE_NAME:$IMAGE_TAG
+
+services:
+  - docker:18.09-dind
+
+cache:
+  key: $CI_COMMIT_REF_SLUG
+
+stages:
+  - build
+  - test-functional
+
+build-image:
+  stage: build
+  script:
+    - export DATE=$(date +%F)
+    - docker login -u $CI_REGISTRY_USER -p $CI_JOB_TOKEN $CI_REGISTRY
+    - docker pull $CI_REGISTRY_IMAGE/$BASE_IMAGE # pull latest image
+    - docker tag $CI_REGISTRY_IMAGE/$BASE_IMAGE $CI_REGISTRY_IMAGE/$IMAGE_NAME:$DATE # tag latest to date
+    - docker push $CI_REGISTRY_IMAGE/$IMAGE_NAME:$DATE # push latest to date
+    - docker build -t $CI_REGISTRY_IMAGE/$BASE_IMAGE $CI_PROJECT_DIR/ # build from Dockerfile
+    - docker push $CI_REGISTRY_IMAGE/$BASE_IMAGE # update latest in registry
+  only:
+    refs:
+      - master
+
+test-server:
+  stage: test-functional
+  before_script:
+    - apk update
+    - apk add python3 bash curl wait4ports
+    - python3 -m localstripe &
+    - wait4ports tcp://localhost:8420
+  script:
+    - $CI_PROJECT_DIR/test.sh
+  after_script:
+    - kill $(pgrep localstripe)
