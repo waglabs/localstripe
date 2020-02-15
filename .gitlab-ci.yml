@@ -34,6 +34,23 @@ build-image:
       - master
       - develop
 
+# remove this stage after confirming everything works as intended
+build-test:
+  stage: build
+  variables:
+    IMAGE_TAG: latest-test
+  script:
+    - export DATE=$(date +%F)
+    - docker login -u $CI_REGISTRY_USER -p $CI_JOB_TOKEN $CI_REGISTRY
+    - docker pull $CI_REGISTRY_IMAGE/$BASE_IMAGE # pull latest image
+    - docker tag $CI_REGISTRY_IMAGE/$BASE_IMAGE $CI_REGISTRY_IMAGE/$IMAGE_NAME:$DATE # tag latest to date
+    - docker push $CI_REGISTRY_IMAGE/$IMAGE_NAME:$DATE # push latest to date
+    - docker build -t $CI_REGISTRY_IMAGE/$BASE_IMAGE $CI_PROJECT_DIR/ # build from Dockerfile
+    - docker push $CI_REGISTRY_IMAGE/$BASE_IMAGE # update latest in registry
+  only:
+    refs:
+      - gitlab-setup
+
 test-server:
   stage: test-functional
   before_script:
