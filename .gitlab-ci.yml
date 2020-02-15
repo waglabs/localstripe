@@ -32,6 +32,7 @@ build-image:
   only:
     refs:
       - master
+      - develop
 
 test-server:
   stage: test-functional
