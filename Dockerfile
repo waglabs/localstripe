@@ -1,4 +1,4 @@
-FROM python:3-alpine
+FROM python:3
 RUN mkdir /app
 ADD . /app
 RUN cd /app && python3 setup.py install && rm -rf /app

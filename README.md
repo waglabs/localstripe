@@ -31,7 +31,6 @@ Features
 Limitations
 -----------
 
-- only the **latest version of Stripe API** is supported (on best effort)
 - deprecated properties and features may or may not be supported
 - **no Stripe Connect support**: localstripe currently only supports Stripe
   Payments, and does not support Stripe Connect
@@ -41,31 +40,18 @@ Get started
 
 Install localstripe:
 
-.. code:: shell
-
- pip3 install --user -U localstripe
- # or, to install globally:
- sudo pip3 install localstripe
+    python3 setup.py install
 
 Then simply run the command ``localstripe``. The fake Stripe server is now
 listening on port 8420.
 
-Or launch a container using `the Docker image
-<https://hub.docker.com/r/adrienverge/localstripe/>`_:
+Or launch a container using the Dockerfile:
 
-.. code:: shell
-
- docker run -p 8420:8420 adrienverge/localstripe:latest
-
-Docker image can be rebuilt using:
-
-.. code::
-
- docker build --no-cache -t adrienverge/localstripe -<<EOF
- FROM python:3
- RUN pip install localstripe
- CMD ["localstripe"]
- EOF
+    docker build -t localstripe:dev .
+    docker run -p 8420:8420 localstripe:dev
+   
+The latest version of this package built from the master branch is also included in
+the wagapi repository's docker-compose.yml for convenience.
 
 Examples
 --------
@@ -73,93 +59,89 @@ Examples
 In the following example, let's create a ``Plan``, a ``Customer``, and
 subscribe the latter to the former:
 
-.. code:: shell
+     curl localhost:8420/v1/plans -u sk_test_12345: \
+          -d id=pro-plan \
+          -d amount=2500 \
+          -d currency=eur \
+          -d interval=month \
+          -d name="Plan for professionals"
+          
+<!-- separate the code blocks -->
 
- curl localhost:8420/v1/plans -u sk_test_12345: \
-      -d id=pro-plan \
-      -d amount=2500 \
-      -d currency=eur \
-      -d interval=month \
-      -d name="Plan for professionals"
+     {
+       "amount": 2500,
+       "created": 1504187388,
+       "currency": "eur",
+       "id": "pro-plan",
+       "interval": "month",
+       "interval_count": 1,
+       "livemode": false,
+       "metadata": {},
+       "name": "Plan for professionals",
+       "object": "plan",
+       "statement_descriptor": null,
+       "trial_period_days": null
+     }
 
-.. code:: shell
+<!-- separate the code blocks -->
 
- {
-   "amount": 2500,
-   "created": 1504187388,
-   "currency": "eur",
-   "id": "pro-plan",
-   "interval": "month",
-   "interval_count": 1,
-   "livemode": false,
-   "metadata": {},
-   "name": "Plan for professionals",
-   "object": "plan",
-   "statement_descriptor": null,
-   "trial_period_days": null
- }
+     curl localhost:8420/v1/customers -u sk_test_12345: \
+          -d description="Customer for david.anderson@example.com"
 
-.. code:: shell
+<!-- separate the code blocks -->
 
- curl localhost:8420/v1/customers -u sk_test_12345: \
-      -d description="Customer for david.anderson@example.com"
+     {
+       "id": "cus_b3IecP7GlNCPMM",
+       "description": "Customer for david.anderson@example.com",
+       "account_balance": 0,
+       "currency": "eur",
+       "default_source": null,
+       ...
+     }
 
-.. code:: shell
+<!-- separate the code blocks -->
 
- {
-   "id": "cus_b3IecP7GlNCPMM",
-   "description": "Customer for david.anderson@example.com",
-   "account_balance": 0,
-   "currency": "eur",
-   "default_source": null,
-   ...
- }
+     curl localhost:8420/v1/subscriptions -u sk_test_12345: \
+          -d customer=cus_b3IecP7GlNCPMM \
+          -d items[0][plan]=pro-plan
 
-.. code:: shell
+<!-- separate the code blocks -->
 
- curl localhost:8420/v1/subscriptions -u sk_test_12345: \
-      -d customer=cus_b3IecP7GlNCPMM \
-      -d items[0][plan]=pro-plan
-
-.. code:: shell
-
- {
-   "id": "sub_UJIdAleo3FnwG7",
-   "customer": "cus_b3IecP7GlNCPMM",
-   "current_period_end": 1506779564,
-   "current_period_start": 1504187564,
-   "items": {
-   ...
- }
+     {
+       "id": "sub_UJIdAleo3FnwG7",
+       "customer": "cus_b3IecP7GlNCPMM",
+       "current_period_end": 1506779564,
+       "current_period_start": 1504187564,
+       "items": {
+       ...
+     }
 
 Now if you retrieve that customer again, it has an associated subscription:
 
-.. code:: shell
+    curl localhost:8420/v1/customers/cus_b3IecP7GlNCPMM -u sk_test_12345:
 
- curl localhost:8420/v1/customers/cus_b3IecP7GlNCPMM -u sk_test_12345:
+<!-- separate code blocks -->
 
-.. code:: shell
-
- {
-   "id": "cus_b3IecP7GlNCPMM",
-   "description": "Customer for david.anderson@example.com",
-   ...
-   "subscriptions": {
-     "data": [
-       {
-         "id": "sub_UJIdAleo3FnwG7",
-         "items": {
-           "data": [
-             {
-               "id": "si_2y5q9Q6lvAB9cr",
-               "plan": {
-                 "id": "pro-plan",
-                 "name": "Plan for professionals",
-                 "amount": 2500,
-                 "currency": "eur",
-                 "interval": "month",
-   ...
- }
+     {
+       "id": "cus_b3IecP7GlNCPMM",
+       "description": "Customer for david.anderson@example.com",
+       ...
+       "subscriptions": {
+         "data": [
+           {
+             "id": "sub_UJIdAleo3FnwG7",
+             "items": {
+               "data": [
+                 {
+                   "id": "si_2y5q9Q6lvAB9cr",
+                   "plan": {
+                     "id": "pro-plan",
+                     "name": "Plan for professionals",
+                     "amount": 2500,
+                     "currency": "eur",
+                     "interval": "month",
+       ...
+     }
 
 Integrate with your back-end
 ----------------------------
@@ -167,12 +149,10 @@ Integrate with your back-end
 For instance in a Python application, you only need to set ``stripe.api_base``
 to ``http://localhost:8420``:
 
-.. code:: python
-
- import stripe
-
- stripe.api_key = 'sk_test_12345'
- stripe.api_base = 'http://localhost:8420'
+     import stripe
+    
+     stripe.api_key = 'sk_test_12345'
+     stripe.api_base = 'http://localhost:8420'
 
 Integrate with Stripe Elements
 ------------------------------
@@ -189,19 +169,15 @@ actually send data to the ``http://localhost:8420/v1/tokens`` API.
 For example if you use a testing tool like Protractor, you need to inject this
 JavaScript source in the web page before it creates card elements:
 
-.. code:: html
-
- <script src="http://localhost:8420/js.stripe.com/v3/"></script>
+    <script src="http://localhost:8420/js.stripe.com/v3/"></script>
 
 Use webhooks
 ------------
 
 Register a webhook using the special ``/_config`` route:
 
-.. code:: shell
-
- curl localhost:8420/_config/webhooks/mywebhook1 \
-      -d url=http://localhost:8888/api/url -d secret=whsec_s3cr3t
+    curl localhost:8420/_config/webhooks/mywebhook1 \
+          -d url=http://localhost:8888/api/url -d secret=whsec_s3cr3t
 
 Then, localstripe will send webhooks to this url, signed using ``secret``. The
 ``events`` option can be used to filter events to be sent.
@@ -225,26 +201,20 @@ using it with any test framework.
 Flushing stored data can be performed using the ``/_config/data`` route
 with DELETE http method:
 
-.. code:: shell
-
- curl -X DELETE localhost:8420/_config/data
+    curl -X DELETE localhost:8420/_config/data
 
 Hacking and contributing
 ------------------------
 
 To quickly run localstripe from source, and reload when a file changed:
 
-.. code:: shell
-
- find -name '*.py' | entr -r python3 -m localstripe --from-scratch
+    find -name '*.py' | entr -r python3 -m localstripe --from-scratch
 
 To quickly build and run localstripe from source:
 
-.. code:: shell
-
- python3 setup.py sdist
- pip3 install --user --upgrade dist/localstripe-*.tar.gz
- localstripe
+    python3 setup.py sdist
+    pip3 install --user --upgrade dist/localstripe-*.tar.gz
+    localstripe
 
 License
 -------
