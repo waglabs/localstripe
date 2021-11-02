@@ -34,6 +34,7 @@ setup(
         'localstripe': ['localstripe-v3.js'],
     },
     install_requires=[
+        'async-timeout <4.0.0',
         'aiohttp <4.0.0',
         'python-dateutil >=2.6.1',
     ],
