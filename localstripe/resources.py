@@ -15,7 +15,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import hashlib
 import pickle
 import random
@@ -262,6 +262,7 @@ class Card(StripeObject):
             address_state = source.get('address_state', None)
             address_zip = source.get('address_zip', None)
             name = source.get('name', None)
+            tokenization_method = source.get('tokenization_method')
             assert type(number) is str and len(number) == 16
             assert type(exp_month) is int
             assert exp_month >= 1 and exp_month <= 12
@@ -297,7 +298,7 @@ class Card(StripeObject):
         self.fingerprint = fingerprint(self._card_number)
         self.funding = 'credit'
         self.name = name
-        self.tokenization_method = None
+        self.tokenization_method = tokenization_method
 
         self.customer = None
 
@@ -639,6 +640,23 @@ class Customer(StripeObject):
         return type(source_obj)._api_update(source_id, **data)
 
     @classmethod
+    def _api_list_sources(cls, id, object=None, **kwargs):
+        if kwargs:
+            raise UserError(400, 'Unexpected ' + ', '.join(kwargs.keys()))
+
+        obj = cls._api_retrieve(id)
+
+        if(object is None):
+            return obj.sources
+
+        filtered_source_list = List(obj.sources.url)
+        for source in obj.sources._list:
+            if(source.object == object):
+                filtered_source_list._list.append(source)
+
+        return filtered_source_list
+
+    @classmethod
     def _api_add_source(cls, id, source=None, **kwargs):
         if kwargs:
             raise UserError(400, 'Unexpected ' + ', '.join(kwargs.keys()))
@@ -721,6 +739,7 @@ class Customer(StripeObject):
 
 extra_apis.extend((
     ('POST', '/v1/customers/{id}/sources', Customer._api_add_source),
+    ('GET', '/v1/customers/{id}/sources', Customer._api_list_sources),
     # Retrieve single source by id:
     ('GET', '/v1/customers/{id}/sources/{source_id}',
      Customer._api_retrieve_source),
@@ -2429,14 +2448,18 @@ class Token(StripeObject):
     _id_prefix = 'tok_'
 
     _test_token_map = {
-        'tok_visa': '4242424242424242',
-        'tok_visa_debit': '4000056655665556',
-        'tok_mastercard': '5555555555554444',
-        'tok_chargeCustomerFail': '4000000000000341',
-        'tok_chargeDeclinedInsufficientFunds': '4000000000009995',
-        'tok_chargeDeclinedFraudulent': '4100000000000019',
-        'tok_chargeDeclinedIncorrectCvc': '4000000000000127',
-        'tok_chargeDeclined': '4000000000000002'
+        'tok_visa': {'number': '4242424242424242'},
+        'tok_visa_debit': {'number': '4000056655665556'},
+        'tok_mastercard': {'number': '5555555555554444'},
+        'tok_chargeCustomerFail': {'number': '4000000000000341'},
+        'tok_chargeDeclinedInsufficientFunds': {'number': '4000000000009995'},
+        'tok_chargeDeclinedFraudulent': {'number': '4100000000000019'},
+        'tok_chargeDeclinedIncorrectCvc': {'number': '4000000000000127'},
+        'tok_chargeDeclined': {'number': '4000000000000002'},
+
+        # custom cards
+        'tok_applePayVisa': {'number': '4242424242424242', 'tokenization_method': 'apple_pay'},
+        'tok_androidPayVisa': {'number': '4242424242424242', 'tokenization_method': 'android_pay'},
     }
 
     def __init__(self, card=None, customer=None, **kwargs):
@@ -2465,11 +2488,13 @@ class Token(StripeObject):
     @classmethod
     def _api_retrieve(cls, id):
         if id in Token._test_token_map.keys():
-            return Token({
-                'number': Token._test_token_map[id],
-                'exp_month': 6,
-                'exp_year': 2019,
+            token_dict = {
+                'exp_month': date.today().month,
+                'exp_year': date.today().year + 1,
                 'cvc': '333'
-            })
+            }
+
+            token_dict.update(Token._test_token_map[id])
+            return Token(token_dict)
 
         return super()._api_retrieve(id)
