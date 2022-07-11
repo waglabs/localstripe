@@ -585,3 +585,15 @@ fingerprint=$(
        -d card[cvc]=123 \
   | grep -oE '"fingerprint": "6589b0d46b6f2f0d",')
 [ -n "$fingerprint" ]
+
+tokenization_method=$(
+  curl -sSf -u $SK: $HOST/v1/customers/$cus/sources \
+       -d source=tok_androidPayVisa \
+  | grep -oE '"tokenization_method": "android_pay",')
+[ -n "$tokenization_method" ]
+
+tokenization_method=$(
+  curl -sSf -u $SK: $HOST/v1/customers/$cus/sources \
+       -d source=tok_applePayVisa \
+  | grep -oE '"tokenization_method": "apple_pay",')
+[ -n "$tokenization_method" ]
