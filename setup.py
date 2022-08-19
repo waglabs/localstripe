@@ -18,7 +18,6 @@ from setuptools import setup
 
 from localstripe import __author__, __version__
 
-
 setup(
     name='localstripe',
     version=__version__,
@@ -29,7 +28,7 @@ setup(
 
     packages=['localstripe'],
     entry_points={'console_scripts':
-                  ['localstripe=localstripe.server:start']},
+                      ['localstripe=localstripe.server:start']},
     package_data={
         'localstripe': ['localstripe-v3.js'],
     },
@@ -38,4 +37,15 @@ setup(
         'aiohttp <4.0.0',
         'python-dateutil >=2.6.1',
     ],
+    extras_require={
+        'dev': [
+            'pytest',
+            'flake8',
+            'flake8-import-order',
+            'doc8',
+            'Pygments',
+            'Faker',
+            'stripe'
+        ]
+    }
 )

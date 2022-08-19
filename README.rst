@@ -246,6 +246,14 @@ To quickly build and run localstripe from source:
  pip3 install --user --upgrade dist/localstripe-*.tar.gz
  localstripe
 
+To run tests:
+
+.. code:: shell
+
+ pip install -e ".[dev]"
+ pytest ./tests
+
+
 License
 -------
 

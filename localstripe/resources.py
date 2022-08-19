@@ -322,6 +322,7 @@ class Charge(StripeObject):
 
     def __init__(self, amount=None, currency=None, description=None,
                  metadata=None, customer=None, source=None, capture=True,
+                 statement_descriptor_suffix=None, statement_descriptor=None,
                  **kwargs):
         if kwargs:
             raise UserError(400, 'Unexpected ' + ', '.join(kwargs.keys()))
@@ -378,6 +379,8 @@ class Charge(StripeObject):
         self.failure_code = None
         self.failure_message = None
         self.captured = capture
+        self.statement_descriptor_suffix = statement_descriptor_suffix
+        self.statement_descriptor = statement_descriptor
 
     def _trigger_payment(self, on_success=None, on_failure_now=None,
                          on_failure_later=None):
@@ -414,7 +417,7 @@ class Charge(StripeObject):
                     on_success()
 
     @classmethod
-    def _api_capture(cls, id, amount=None, **kwargs):
+    def _api_capture(cls, id, amount=None, statement_descriptor_suffix=None, statement_descriptor=None, **kwargs):
         if kwargs:
             raise UserError(400, 'Unexpected ' + ', '.join(kwargs.keys()))
 
@@ -437,6 +440,10 @@ class Charge(StripeObject):
 
         def on_success():
             obj.captured = True
+            if(statement_descriptor is not None):
+                obj.statement_descriptor = statement_descriptor
+            if(statement_descriptor_suffix is not None):
+                obj.statement_descriptor_suffix = statement_descriptor_suffix
             if amount < obj.amount:
                 refunded = obj.amount - amount
                 obj.refunds._list.append(Refund(obj.id, refunded))
