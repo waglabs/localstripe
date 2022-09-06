@@ -31,7 +31,8 @@ class UserError(Exception):
         Exception.__init__(self)
         self.code = code
         self.body = {'error': contents or {}}
-        self.body['error']['type'] = 'invalid_request_error'
+        if not 'type'  in self.body['error']:
+            self.body['error']['type'] = 'invalid_request_error'
         if message is not None:
             self.body['error']['message'] = message
 
