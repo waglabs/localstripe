@@ -25,10 +25,10 @@ import socket
 from aiohttp import web
 
 from .resources import Charge, Coupon, Customer, \
-                       Event, Invoice, InvoiceItem, PaymentIntent, \
-                       PaymentMethod, Plan, Product, Refund, SetupIntent, \
-                       Source, Subscription, SubscriptionItem, TaxRate, \
-                       Token, extra_apis, store
+    Event, Invoice, InvoiceItem, PaymentIntent, \
+    PaymentMethod, Plan, Product, Refund, SetupIntent, \
+    Source, Subscription, SubscriptionItem, TaxRate, \
+    Token, VerificationSession, extra_apis, store
 from .errors import UserError
 from .webhooks import register_webhook
 
@@ -165,14 +165,14 @@ async def auth_middleware(request, handler):
         # where authentication can be done using the public key (passed as
         # `key` in POST data) instead of the private key.
         accept_key_in_post_data = (
-            request.method == 'POST' and
-            any(re.match(pattern, request.path) for pattern in (
-                r'^/v1/tokens$',
-                r'^/v1/sources$',
-                r'^/v1/payment_intents/\w+/_authenticate\b',
-                r'^/v1/setup_intents/\w+/confirm$',
-                r'^/v1/setup_intents/\w+/cancel$',
-            )))
+                request.method == 'POST' and
+                any(re.match(pattern, request.path) for pattern in (
+                    r'^/v1/tokens$',
+                    r'^/v1/sources$',
+                    r'^/v1/payment_intents/\w+/_authenticate\b',
+                    r'^/v1/setup_intents/\w+/confirm$',
+                    r'^/v1/setup_intents/\w+/cancel$',
+                )))
 
         is_auth = get_api_key(request) is not None
 
@@ -202,6 +202,7 @@ def api_create(cls, url):
         data = data or {}
         expand = data.pop('expand', None)
         return json_response(cls._api_create(**data)._export(expand=expand))
+
     return f
 
 
@@ -211,6 +212,7 @@ def api_retrieve(cls, url):
         data = unflatten_data(request.query)
         expand = data.pop('expand', None)
         return json_response(cls._api_retrieve(id)._export(expand=expand))
+
     return f
 
 
@@ -223,6 +225,7 @@ def api_update(cls, url):
         expand = data.pop('expand', None)
         return json_response(cls._api_update(id, **data)._export(
             expand=expand))
+
     return f
 
 
@@ -231,6 +234,7 @@ def api_delete(cls, url):
         id = request.match_info['id']
         ret = cls._api_delete(id)
         return json_response(ret if isinstance(ret, dict) else ret._export())
+
     return f
 
 
@@ -240,6 +244,7 @@ def api_list_all(cls, url):
         expand = data.pop('expand', None)
         return json_response(cls._api_list_all(url, **data)
                              ._export(expand=expand))
+
     return f
 
 
@@ -252,6 +257,7 @@ def api_extra(func, url):
         if 'source_id' in request.match_info:
             data['source_id'] = request.match_info['source_id']
         return json_response(func(**data)._export())
+
     return f
 
 
@@ -260,16 +266,15 @@ def api_extra(func, url):
 for method, url, func in extra_apis:
     app.router.add_route(method, url, api_extra(func, url))
 
-
 for cls in (Charge, Coupon, Customer, Event, Invoice, InvoiceItem,
             PaymentIntent, PaymentMethod, Plan, Product, Refund, SetupIntent,
-            Source, Subscription, SubscriptionItem, TaxRate, Token):
+            Source, Subscription, SubscriptionItem, TaxRate, Token, VerificationSession):
     for method, url, func in (
-            ('POST', '/v1/' + cls.object + 's', api_create),
-            ('GET', '/v1/' + cls.object + 's/{id}', api_retrieve),
-            ('POST', '/v1/' + cls.object + 's/{id}', api_update),
-            ('DELETE', '/v1/' + cls.object + 's/{id}', api_delete),
-            ('GET', '/v1/' + cls.object + 's', api_list_all)):
+            ('POST', '/v1/' + cls.object.replace('.', '/') + 's', api_create),
+            ('GET', '/v1/' + cls.object.replace('.', '/') + 's/{id}', api_retrieve),
+            ('POST', '/v1/' + cls.object.replace('.', '/') + 's/{id}', api_update),
+            ('DELETE', '/v1/' + cls.object.replace('.', '/') + 's/{id}', api_delete),
+            ('GET', '/v1/' + cls.object.replace('.', '/') + 's', api_list_all)):
         app.router.add_route(method, url, func(cls, url))
 
 

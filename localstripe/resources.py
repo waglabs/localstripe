@@ -2562,3 +2562,37 @@ class Token(StripeObject):
             return Token(token_dict)
 
         return super()._api_retrieve(id)
+
+
+class VerificationSession(StripeObject):
+    object = 'identity.verification_session'
+    _id_prefix = 'vs_'
+
+    def __init__(self, type=None, return_url=None, metadata=None, **kwargs):
+        if kwargs:
+            raise UserError(400, 'Unexpected ' + ', '.join(kwargs.keys()))
+
+        try:
+            assert type in ['document', 'id_number']
+        except AssertionError:
+            raise UserError(400, 'Bad request')
+
+        # All exceptions must be raised before this point.
+        super().__init__()
+
+        self.return_url = return_url or None
+        self.status = 'requires_input'
+        self.type = type
+        self.metadata = metadata or {}
+        self.url = 'https://fake/' + self.id
+
+    @classmethod
+    def _api_cancel_session(cls, id, **kwargs):
+        if kwargs:
+            raise UserError(400, 'Unexpected ' + ', '.join(kwargs.keys()))
+
+        return super()._api_update(id, status='canceled')
+
+
+extra_apis.append((
+    ('POST', '/v1/identity/verification_sessions/{id}/cancel', VerificationSession._api_cancel_session)))
