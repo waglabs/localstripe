@@ -1364,7 +1364,8 @@ class PaymentIntent(StripeObject):
     _id_prefix = 'pi_'
 
     def __init__(self, amount=None, currency=None, customer=None,
-                 payment_method=None, metadata=None, **kwargs):
+                 payment_method=None, metadata=None, capture_method=None, statement_descriptor_suffix=None,
+                 off_session=None, confirm=None, description=None, **kwargs):
         if kwargs:
             raise UserError(400, 'Unexpected ' + ', '.join(kwargs.keys()))
 
@@ -1401,6 +1402,11 @@ class PaymentIntent(StripeObject):
         self.metadata = metadata or {}
         self.invoice = None
         self.next_action = None
+        self.capture_method = capture_method
+        self.statement_descriptor_suffix = statement_descriptor_suffix
+        self.off_session = off_session
+        self.confirm = confirm
+        self.description = description
 
         self._canceled = False
         self._authentication_failed = False
