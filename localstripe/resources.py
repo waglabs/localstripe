@@ -15,19 +15,20 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import asyncio
-from datetime import datetime, timedelta
+import logging
+from datetime import datetime, timedelta, date
 import hashlib
 import pickle
 import random
 import re
 import string
 import time
+import logging
 
 from dateutil.relativedelta import relativedelta
 
 from .errors import UserError
 from .webhooks import schedule_webhook
-
 
 # Save built-in keyword `type`, because some classes override it by using
 # `type` as a method argument:
@@ -207,7 +208,7 @@ class StripeObject(object):
                 if isinstance(value, StripeObject):
                     obj[key] = value._export()
                 elif (isinstance(value, list) and len(value) and
-                        isinstance(value[0], StripeObject)):
+                      isinstance(value[0], StripeObject)):
                     obj[key] = [item._export() for item in value]
                 elif isinstance(value, dict):
                     obj[key] = value.copy()
@@ -235,6 +236,7 @@ class StripeObject(object):
                     obj[k] = cls._api_retrieve(id)._export()
                 if path is not None:
                     do_expand(path, obj[k])
+
         try:
             for path in expand:
                 do_expand(path, obj)
@@ -389,6 +391,8 @@ class Card(StripeObject):
             address_state = source.get('address_state')
             address_zip = source.get('address_zip')
             name = source.get('name')
+            tokenization_method = source.get('tokenization_method')
+            attach_error = source.get('attach_error', None)
             assert type(number) is str and len(number) == 16
             assert type(exp_month) is int
             assert exp_month >= 1 and exp_month <= 12
@@ -424,7 +428,8 @@ class Card(StripeObject):
         self.fingerprint = fingerprint(self._card_number)
         self.funding = 'credit'
         self.name = name
-        self.tokenization_method = None
+        self.tokenization_method = tokenization_method
+        self.attach_error = attach_error
 
         self.customer = None
 
@@ -448,7 +453,7 @@ class Charge(StripeObject):
 
     def __init__(self, amount=None, currency=None, description=None,
                  metadata=None, customer=None, source=None, capture=True,
-                 statement_descriptor=None,
+                 statement_descriptor_suffix=None, statement_descriptor=None,
                  **kwargs):
         if kwargs:
             raise UserError(400, 'Unexpected ' + ', '.join(kwargs.keys()))
@@ -482,6 +487,9 @@ class Charge(StripeObject):
         else:
             source = PaymentMethod._api_retrieve(source)
 
+        if source._charging_is_declined():
+            raise UserError(402, 'Your card was declined')
+
         if customer is None:
             customer = source.customer
 
@@ -500,11 +508,12 @@ class Charge(StripeObject):
         self.receipt_email = None
         self.receipt_number = None
         self.payment_method = source.id
-        self.statement_descriptor = statement_descriptor
         self.failure_code = None
         self.failure_message = None
         self.captured = capture
         self.balance_transaction = None
+        self.statement_descriptor_suffix = statement_descriptor_suffix
+        self.statement_descriptor = statement_descriptor
 
     def _trigger_payment(self, on_success=None, on_failure_now=None,
                          on_failure_later=None):
@@ -572,7 +581,7 @@ class Charge(StripeObject):
         return obj
 
     @classmethod
-    def _api_capture(cls, id, amount=None, **kwargs):
+    def _api_capture(cls, id, amount=None, statement_descriptor_suffix=None, statement_descriptor=None, **kwargs):
         if kwargs:
             raise UserError(400, 'Unexpected ' + ', '.join(kwargs.keys()))
 
@@ -595,6 +604,10 @@ class Charge(StripeObject):
 
         def on_success():
             obj.captured = True
+            if (statement_descriptor is not None):
+                obj.statement_descriptor = statement_descriptor
+            if (statement_descriptor_suffix is not None):
+                obj.statement_descriptor_suffix = statement_descriptor_suffix
             if amount < obj.amount:
                 refunded = obj.amount - amount
                 Refund(obj.id, refunded)
@@ -629,7 +642,7 @@ class Charge(StripeObject):
                 assert type(created) in (dict, str)
                 if type(created) is dict:
                     assert len(created.keys()) == 1 and \
-                        list(created.keys())[0] in ('gt', 'gte', 'lt', 'lte')
+                           list(created.keys())[0] in ('gt', 'gte', 'lt', 'lte')
                     date = try_convert_to_int(list(created.values())[0])
                 elif type(created) is str:
                     date = try_convert_to_int(created)
@@ -880,8 +893,12 @@ class Customer(StripeObject):
             source_obj = Card(source=source)
 
         if source_obj._attaching_is_declined():
-            raise UserError(402, 'Your card was declined.',
-                            {'code': 'card_declined'})
+            error_message = 'Your card was declined'
+            error_contents = {'code': 'card_declined'}
+            if source_obj.attach_error is not None:
+                error_message = None
+                error_contents = source_obj.attach_error
+            raise UserError(402, error_message, error_contents)
 
         if isinstance(source_obj, Card):
             source_obj.customer = id
@@ -995,7 +1012,7 @@ class Customer(StripeObject):
 
         if obj.customer != id:
             raise UserError(404, 'Customer ' + id + ' does not have a '
-                                 'subscription with ID ' + subscription_id)
+                                                    'subscription with ID ' + subscription_id)
 
         return obj
 
@@ -1005,7 +1022,7 @@ class Customer(StripeObject):
 
         if obj.customer != id:
             raise UserError(404, 'Customer ' + id + ' does not have a '
-                                 'subscription with ID ' + subscription_id)
+                                                    'subscription with ID ' + subscription_id)
 
         return Subscription._api_update(subscription_id, **data)
 
@@ -1149,7 +1166,7 @@ class Invoice(StripeObject):
 
         pending_items = [ii for ii in InvoiceItem._api_list_all(
             None, customer=self.customer, limit=99)._list
-            if ii.invoice is None]
+                         if ii.invoice is None]
         for ii in pending_items:
             if not simulation:
                 ii.invoice = self.id
@@ -1327,16 +1344,16 @@ class Invoice(StripeObject):
 
         pending_items = [ii for ii in InvoiceItem._api_list_all(
             None, customer=customer, limit=99)._list
-            if ii.invoice is None]
+                         if ii.invoice is None]
         if (not upcoming and not subscription and
                 not subscription_items and not pending_items):
             raise UserError(400, 'Bad request')
 
         simulation = subscription_items is not None or \
-            subscription_prorate is not None or \
-            subscription_tax_percent is not None or \
-            subscription_default_tax_rates is not None or \
-            subscription_trial_end is not None
+                     subscription_prorate is not None or \
+                     subscription_tax_percent is not None or \
+                     subscription_default_tax_rates is not None or \
+                     subscription_trial_end is not None
 
         current_subscription = None
         li = [s for s in customer_obj.subscriptions._list
@@ -1356,7 +1373,7 @@ class Invoice(StripeObject):
 
         invoice_items = []
         items = subscription_items or \
-            (current_subscription and current_subscription.items._list) or []
+                (current_subscription and current_subscription.items._list) or []
         for si in items:
             if subscription_items is not None:
                 plan = Plan._api_retrieve(si['plan'])
@@ -1739,8 +1756,8 @@ class List(StripeObject):
     def data(self):
         self._compute_starting_pos()
         return [item._export() for item in self._list[
-            self._starting_pos:self._starting_pos + self._limit
-        ]]
+                                           self._starting_pos:self._starting_pos + self._limit
+                                           ]]
 
     @property
     def total_count(self):
@@ -1770,7 +1787,8 @@ class PaymentIntent(StripeObject):
     _id_prefix = 'pi_'
 
     def __init__(self, amount=None, currency=None, customer=None,
-                 payment_method=None, metadata=None, **kwargs):
+                 payment_method=None, metadata=None, capture_method='automatic',
+                 statement_descriptor_suffix=None, description=None, **kwargs):
         if kwargs:
             raise UserError(400, 'Unexpected ' + ', '.join(kwargs.keys()))
 
@@ -1779,6 +1797,9 @@ class PaymentIntent(StripeObject):
             # Invoices with amount == 0 don't create PaymentIntents:
             assert type(amount) is int and amount > 0
             assert type(currency) is str and currency
+            if capture_method is not None:
+                assert type(capture_method) is str
+                assert capture_method in ('automatic', 'manual')
             if customer is not None:
                 assert type(customer) is str and customer.startswith('cus_')
             if payment_method is not None:
@@ -1786,7 +1807,8 @@ class PaymentIntent(StripeObject):
                 assert (payment_method.startswith('pm_') or
                         payment_method.startswith('src_') or
                         payment_method.startswith('card_'))
-        except AssertionError:
+        except AssertionError as e:
+            logging.info('unable to create payment intent ' + str(e))
             raise UserError(400, 'Bad request')
 
         if customer:
@@ -1794,6 +1816,10 @@ class PaymentIntent(StripeObject):
         if payment_method:
             # return 404 if not existant
             PaymentMethod._api_retrieve(payment_method)
+        else:
+            # add our legacy fallback like stripe
+            if customer:
+                payment_method = Customer._api_retrieve(customer).default_source
 
         # All exceptions must be raised before this point.
         super().__init__()
@@ -1807,7 +1833,9 @@ class PaymentIntent(StripeObject):
         self.metadata = metadata or {}
         self.invoice = None
         self.next_action = None
-
+        self.capture_method = capture_method
+        self.statement_descriptor_suffix = statement_descriptor_suffix
+        self.description = description
         self._canceled = False
         self._authentication_failed = False
 
@@ -1903,11 +1931,12 @@ class PaymentIntent(StripeObject):
         try:
             assert type(id) is str and id.startswith('pi_')
         except AssertionError:
-            raise UserError(400, 'Bad request')
+            raise UserError(401, 'Bad request')
 
         obj = cls._api_retrieve(id)
 
         if obj.status != 'requires_confirmation':
+            print('unable to confirm payment intent, obj had a status of {}'.format(obj.status))
             raise UserError(400, 'Bad request')
 
         obj._authentication_failed = False
@@ -2073,15 +2102,18 @@ class PaymentMethod(StripeObject):
                                          '4000000000009979',
                                          '4000000000000069',
                                          '4000000000000127',
-                                         '4000000000000119',
-                                         '4242424242424241')
+                                         '4000000000000119')
         return False
 
     def _charging_is_declined(self):
         if self.type == 'card':
-            return self._card_number in ('4000000000000341',
+            return self._card_number in ('4000000000000002',
+                                         '4000000000000127',
+                                         '4000000000000341',
+                                         '4000000000009995',
                                          '4000008260003178',
-                                         '4000008400001629')
+                                         '4000008400001629',
+                                         '4100000000000019')
         elif self.type == 'sepa_debit':
             return self._sepa_debit_iban == 'DE62370400440532013001'
         return False
@@ -2138,7 +2170,7 @@ class PaymentMethod(StripeObject):
                       starting_after=None):
         try:
             assert _type(customer) is str and customer.startswith('cus_')
-            assert type in ('card', )
+            assert type in ('card',)
         except AssertionError:
             raise UserError(400, 'Bad request')
 
@@ -2291,7 +2323,7 @@ class Payout(StripeObject):
                 assert type(metadata) is dict
             if statement_descriptor is not None:
                 assert type(statement_descriptor) is str \
-                    and len(statement_descriptor) <= 22
+                       and len(statement_descriptor) <= 22
             if method is not None:
                 assert method in ('standard', 'instant')
             if source_type is not None:
@@ -2793,8 +2825,8 @@ class Subscription(StripeObject):
         self.start_date = backdate_start_date or int(time.time())
         self.billing_cycle_anchor = billing_cycle_anchor
         self._enable_incomplete_payments = (
-            enable_incomplete_payments and
-            payment_behavior != 'error_if_incomplete')
+                enable_incomplete_payments and
+                payment_behavior != 'error_if_incomplete')
 
         self.items = List('/v1/subscription_items?subscription=' + self.id)
         self.items._list.append(
@@ -2827,7 +2859,7 @@ class Subscription(StripeObject):
     def _create_invoice(self):
         pending_items = [ii for ii in InvoiceItem._api_list_all(
             None, customer=self.customer, limit=99)._list
-            if ii.invoice is None]
+                         if ii.invoice is None]
 
         for si in self.items._list:
             pending_items.append(si)
@@ -3029,8 +3061,8 @@ class Subscription(StripeObject):
         # is not automatically generated. To achieve that, an invoice has to
         # be manually created using the POST /invoices route.
         create_an_invoice = self.plan.billing_scheme == 'per_unit' and (
-            self.plan.interval != old_plan.interval or
-            self.plan.interval_count != old_plan.interval_count)
+                self.plan.interval != old_plan.interval or
+                self.plan.interval_count != old_plan.interval_count)
         if create_an_invoice:
             self._create_invoice()
 
@@ -3131,8 +3163,8 @@ class SubscriptionItem(StripeObject):
         if self.plan.tiers_mode == 'volume':
             index = next(
                 (i for i, t in enumerate(self.plan.tiers)
-                    if t['up_to'] == 'inf'
-                    or self.quantity <= int(t['up_to'])))
+                 if t['up_to'] == 'inf'
+                 or self.quantity <= int(t['up_to'])))
             return self._calculate_amount_in_tier(
                 self.quantity, index)
 
@@ -3251,6 +3283,73 @@ class Token(StripeObject):
     object = 'token'
     _id_prefix = 'tok_'
 
+    _test_token_map = {
+        'tok_visa': {'number': '4242424242424242'},
+        'tok_visa_debit': {'number': '4000056655665556'},
+        'tok_mastercard': {'number': '5555555555554444'},
+        'tok_chargeCustomerFail': {'number': '4000000000000341'},
+        'tok_chargeDeclinedFraudulent': {'number': '4100000000000019'},
+
+        'tok_chargeDeclinedInsufficientFunds': {'number': '4000000000009995', 'attach_error': {
+            "code": "card_declined",
+            "decline_code": "insufficient_funds",
+            "doc_url": "https://stripe.com/docs/error-codes/card-declined",
+            "message": "Your card has insufficient funds.",
+            "param": "",
+            "type": "card_error"
+        }},
+
+        'tok_chargeDeclinedIncorrectCvc': {'number': '4000000000000127', 'attach_error': {
+            "code": "incorrect_cvc",
+            "doc_url": "https://stripe.com/docs/error-codes/incorrect-cvc",
+            "message": "Your card's security code is incorrect.",
+            "param": "cvc",
+            "type": "card_error"
+        }},
+        'tok_chargeDeclined': {'number': '4000000000000002', 'attach_error': {
+            "code": "card_declined",
+            "decline_code": "generic_decline",
+            "doc_url": "https://stripe.com/docs/error-codes/card-declined",
+            "message": "Your card was declined.",
+            "param": "",
+            "type": "card_error"
+        }},
+        'tok_visa_chargeDeclinedLostCard': {'number': '4000000000009987', 'attach_error': {
+            "code": "card_declined",
+            "decline_code": "lost_card",
+            "doc_url": "https://stripe.com/docs/error-codes/card-declined",
+            "message": "Your card was declined.",
+            "param": "",
+            "type": "card_error"
+        }},
+        'tok_visa_chargeDeclinedStolenCard': {'number': '4000000000009979', 'attach_error': {
+            "code": "card_declined",
+            "decline_code": "stolen_card",
+            "doc_url": "https://stripe.com/docs/error-codes/card-declined",
+            "message": "Your card was declined.",
+            "param": "",
+            "type": "card_error"
+        }},
+        'tok_chargeDeclinedExpiredCard': {'number': '4000000000000069', 'attach_error': {
+            "code": "expired_card",
+            "doc_url": "https://stripe.com/docs/error-codes/expired-card",
+            "message": "Your card has expired.",
+            "param": "exp_month",
+            "type": "card_error"
+        }},
+        'tok_chargeDeclinedProcessingError': {'number': '4000000000000119', 'attach_error': {
+            "code": "processing_error",
+            "doc_url": "https://stripe.com/docs/error-codes/processing-error",
+            "message": "An error occurred while processing your card. Try again in a little bit.",
+            "param": "",
+            "type": "card_error"
+        }},
+
+        # custom cards
+        'tok_applePayVisa': {'number': '4242424242424242', 'tokenization_method': 'apple_pay'},
+        'tok_androidPayVisa': {'number': '4242424242424242', 'tokenization_method': 'android_pay'},
+    }
+
     def __init__(self, card=None, customer=None, **kwargs):
         if kwargs:
             raise UserError(400, 'Unexpected ' + ', '.join(kwargs.keys()))
@@ -3273,3 +3372,51 @@ class Token(StripeObject):
 
         self.type = 'card'
         self.card = card_obj
+
+    @classmethod
+    def _api_retrieve(cls, id):
+        if id in Token._test_token_map.keys():
+            token_dict = {
+                'exp_month': date.today().month,
+                'exp_year': date.today().year + 1,
+                'cvc': '333'
+            }
+
+            token_dict.update(Token._test_token_map[id])
+            return Token(token_dict)
+
+        return super()._api_retrieve(id)
+
+
+class VerificationSession(StripeObject):
+    object = 'identity.verification_session'
+    _id_prefix = 'vs_'
+
+    def __init__(self, type=None, return_url=None, metadata=None, **kwargs):
+        if kwargs:
+            raise UserError(400, 'Unexpected ' + ', '.join(kwargs.keys()))
+
+        try:
+            assert type in ['document', 'id_number']
+        except AssertionError:
+            raise UserError(400, 'Bad request')
+
+        # All exceptions must be raised before this point.
+        super().__init__()
+
+        self.return_url = return_url or None
+        self.status = 'requires_input'
+        self.type = type
+        self.metadata = metadata or {}
+        self.url = 'https://fake/' + self.id
+
+    @classmethod
+    def _api_cancel_session(cls, id, **kwargs):
+        if kwargs:
+            raise UserError(400, 'Unexpected ' + ', '.join(kwargs.keys()))
+
+        return super()._api_update(id, status='canceled')
+
+
+extra_apis.append((
+    ('POST', '/v1/identity/verification_sessions/{id}/cancel', VerificationSession._api_cancel_session)))
