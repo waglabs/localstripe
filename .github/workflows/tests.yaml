@@ -42,6 +42,7 @@ jobs:
           python-version: ${{ matrix.pyver }}
       - run: python setup.py sdist
       - run: pip install dist/localstripe-*.tar.gz
+      - run: pip install pytest Faker stripe
       - run: python -m localstripe &
       # Wait for server to be up:
       - run: >
@@ -49,3 +50,4 @@ jobs:
             nc -z -w 1 localhost 8420; r=$?; [ $r -eq 0 ] && break; sleep 1;
           done; exit $r
       - run: ./test.sh
+      - run: pytest ./tests
