@@ -247,7 +247,9 @@ To quickly build and run localstripe from source:
  localstripe
 
 To run tests:
+
 .. code:: shell
+
  pip install -e ".[dev]"
  pytest ./tests
 
