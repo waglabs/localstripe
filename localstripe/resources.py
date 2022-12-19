@@ -13,17 +13,15 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
 import asyncio
-import logging
-from datetime import datetime, timedelta, date
 import hashlib
 import pickle
 import random
 import re
 import string
 import time
-import logging
+from _pickle import UnpicklingError
+from datetime import datetime, timedelta, date
 
 from dateutil.relativedelta import relativedelta
 
@@ -46,6 +44,8 @@ class Store(dict):
                 self.clear()
                 self.update(old)
         except FileNotFoundError:
+            pass
+        except UnpicklingError:
             pass
 
     def dump_to_disk(self):
@@ -1808,7 +1808,6 @@ class PaymentIntent(StripeObject):
                         payment_method.startswith('src_') or
                         payment_method.startswith('card_'))
         except AssertionError as e:
-            logging.info('unable to create payment intent ' + str(e))
             raise UserError(400, 'Bad request')
 
         if customer:
@@ -1931,7 +1930,7 @@ class PaymentIntent(StripeObject):
         try:
             assert type(id) is str and id.startswith('pi_')
         except AssertionError:
-            raise UserError(401, 'Bad request')
+            raise UserError(400, 'Bad request')
 
         obj = cls._api_retrieve(id)
 
