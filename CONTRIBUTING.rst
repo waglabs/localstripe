@@ -38,14 +38,6 @@ Cosmetic code changes
 We are less than likely to accept them. The main reason is that it makes the
 Git history harder to explore.
 
-Lint
-----
-
-Before opening a pull request, please run ``flake8`` as `our automated tests
-do`_.
-
-.. _our automated tests do: https://github.com/adrienverge/localstripe/blob/e8de08d/.github/workflows/tests.yaml#L23
-
 Tests
 -----
 
@@ -54,4 +46,4 @@ Before opening a pull request, please run the test suite. You can use:
 .. code:: shell
 
  find -name '*.py' | entr -r python3 -m localstripe --from-scratch
- curl -X DELETE localhost:8420/_config/data && ./test.sh
+ curl -X DELETE localhost:8420/_config/data && ./test.sh && pytest ./tests

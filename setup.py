@@ -39,9 +39,6 @@ setup(
     extras_require={
         'dev': [
             'pytest',
-            'flake8',
-            'flake8-import-order',
-            'doc8',
             'Pygments',
             'Faker',
             'stripe'
