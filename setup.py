@@ -33,7 +33,7 @@ setup(
         'localstripe': ['localstripe-v3.js'],
     },
     install_requires=[
-        'aiohttp >=2.3.2',
+        'aiohttp >=3.8.1',
         'python-dateutil >=2.6.1',
     ],
     extras_require={
