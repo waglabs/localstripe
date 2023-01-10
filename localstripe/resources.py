@@ -1784,7 +1784,7 @@ class PaymentIntent(StripeObject):
     _id_prefix = 'pi_'
 
     def __init__(self, amount=None, currency=None, customer=None,
-                 payment_method=None, metadata=None, capture_method='automatic',
+                 payment_method=None, metadata=None, capture_method=None,
                  statement_descriptor_suffix=None, description=None, **kwargs):
         if kwargs:
             raise UserError(400, 'Unexpected ' + ', '.join(kwargs.keys()))
@@ -1820,6 +1820,9 @@ class PaymentIntent(StripeObject):
         # All exceptions must be raised before this point.
         super().__init__()
 
+        if capture_method is None:
+            capture_method = 'automatic'
+
         self.amount = amount
         self.currency = currency
         self.charges = List('/v1/charges?payment_intent=' + self.id)
@@ -1834,10 +1837,11 @@ class PaymentIntent(StripeObject):
         self.description = description
         self._canceled = False
         self._authentication_failed = False
+        self._confirmed = False
 
-    def _trigger_payment(self):
-        if self.status != 'requires_confirmation':
-            raise UserError(400, 'Bad request')
+    def _trigger_payment(self, amount_to_capture=None):
+        if self.status != 'requires_confirmation' and self.status != 'requires_capture':
+            raise UserError(400, 'Bad request: ' + self.status)
 
         def on_success():
             if self.invoice:
@@ -1854,7 +1858,11 @@ class PaymentIntent(StripeObject):
                 invoice = Invoice._api_retrieve(self.invoice)
                 invoice._on_payment_failure_later()
 
-        charge = Charge(amount=self.amount,
+        amount = self.amount
+        if amount_to_capture is not None:
+            amount = amount_to_capture
+
+        charge = Charge(amount=amount,
                         currency=self.currency,
                         customer=self.customer,
                         source=self.payment_method)
@@ -1870,6 +1878,8 @@ class PaymentIntent(StripeObject):
         if self.next_action:
             return 'requires_action'
         if len(self.charges._list) == 0:
+            if self._confirmed:
+                return 'requires_capture'
             return 'requires_confirmation'
         charge = self.charges._list[-1]
         if charge.status == 'succeeded':
@@ -1935,6 +1945,8 @@ class PaymentIntent(StripeObject):
             print('unable to confirm payment intent, obj had a status of {}'.format(obj.status))
             raise UserError(400, 'Bad request')
 
+        obj._confirmed = True
+
         obj._authentication_failed = False
         payment_method = PaymentMethod._api_retrieve(obj.payment_method)
         if payment_method._requires_authentication():
@@ -1944,7 +1956,8 @@ class PaymentIntent(StripeObject):
                                    'stripe_js': ''},
             }
         else:
-            obj._trigger_payment()
+            if obj.capture_method == 'automatic':
+                obj._trigger_payment()
 
         return obj
 
@@ -1965,6 +1978,34 @@ class PaymentIntent(StripeObject):
 
         obj._canceled = True
         obj.next_action = None
+        return obj
+
+    @classmethod
+    def _api_capture(cls, id, amount_to_capture=None, statement_descriptor_suffix=None, **kwargs):
+        if kwargs:
+            raise UserError(400, 'Unexpected ' + ', '.join(kwargs.keys()))
+
+        try:
+            assert type(id) is str and id.startswith('pi_')
+        except AssertionError:
+            raise UserError(400, 'Bad request')
+
+        obj = cls._api_retrieve(id)
+
+        if obj.status not in ('requires_capture'):
+            raise UserError(400, 'Bad request')
+
+        try:
+            if amount_to_capture is not None:
+                assert type(amount_to_capture) is int and amount_to_capture <= obj.amount
+        except AssertionError:
+            raise UserError(400, 'Bad request')
+
+        if statement_descriptor_suffix is not None:
+            obj.statement_descriptor_suffix = statement_descriptor_suffix
+
+
+        obj._trigger_payment()
         return obj
 
     @classmethod
@@ -2004,6 +2045,7 @@ class PaymentIntent(StripeObject):
 extra_apis.extend((
     ('POST', '/v1/payment_intents/{id}/confirm', PaymentIntent._api_confirm),
     ('POST', '/v1/payment_intents/{id}/cancel', PaymentIntent._api_cancel),
+    ('POST', '/v1/payment_intents/{id}/capture', PaymentIntent._api_capture),
     ('POST', '/v1/payment_intents/{id}/_authenticate',
      PaymentIntent._api_authenticate)))
 
