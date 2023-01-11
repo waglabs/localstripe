@@ -1839,7 +1839,7 @@ class PaymentIntent(StripeObject):
         self._authentication_failed = False
         self._confirmed = False
 
-    def _trigger_payment(self, amount_to_capture=None):
+    def _trigger_payment(self, amount_to_capture=None, capture=True):
         if self.status != 'requires_confirmation' and self.status != 'requires_capture':
             raise UserError(400, 'Bad request: ' + self.status)
 
@@ -1862,12 +1862,21 @@ class PaymentIntent(StripeObject):
         if amount_to_capture is not None:
             amount = amount_to_capture
 
-        charge = Charge(amount=amount,
-                        currency=self.currency,
-                        customer=self.customer,
-                        source=self.payment_method)
-        self.charges._list.append(charge)
-        charge._trigger_payment(on_success, on_failure_now, on_failure_later)
+        charge = None
+
+        if len(self.charges._list) > 0:
+            charge = self.charges._list[-1]
+
+        if charge is None:
+            charge = Charge._api_create(amount=amount,
+                            currency=self.currency,
+                            customer=self.customer,
+                            source=self.payment_method,
+                            capture=capture)
+            self.charges._list.append(charge)
+
+        if capture:
+            charge._trigger_payment(on_success, on_failure_now, on_failure_later)
 
     @property
     def status(self):
@@ -1878,8 +1887,6 @@ class PaymentIntent(StripeObject):
         if self.next_action:
             return 'requires_action'
         if len(self.charges._list) == 0:
-            if self._confirmed:
-                return 'requires_capture'
             return 'requires_confirmation'
         charge = self.charges._list[-1]
         if charge.status == 'succeeded':
@@ -1887,6 +1894,8 @@ class PaymentIntent(StripeObject):
         elif charge.status == 'failed':
             return 'requires_payment_method'
         elif charge.status == 'pending':
+            if charge.captured == False:
+                return 'requires_capture'
             return 'processing'
 
     @property
@@ -1956,8 +1965,7 @@ class PaymentIntent(StripeObject):
                                    'stripe_js': ''},
             }
         else:
-            if obj.capture_method == 'automatic':
-                obj._trigger_payment()
+            obj._trigger_payment(None, obj.capture_method == 'automatic')
 
         return obj
 
@@ -2005,7 +2013,7 @@ class PaymentIntent(StripeObject):
             obj.statement_descriptor_suffix = statement_descriptor_suffix
 
 
-        obj._trigger_payment()
+        obj._trigger_payment(amount_to_capture=amount_to_capture)
         return obj
 
     @classmethod
