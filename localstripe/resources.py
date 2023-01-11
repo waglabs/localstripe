@@ -629,6 +629,10 @@ class Charge(StripeObject):
     def refunded(self):
         return self.amount <= self.amount_refunded
 
+    @property
+    def amount_captured(self):
+        return self.amount - self.amount_refunded
+
     @classmethod
     def _api_list_all(cls, url, customer=None, created=None, limit=10,
                       starting_after=None):
@@ -1869,14 +1873,25 @@ class PaymentIntent(StripeObject):
 
         if charge is None:
             charge = Charge._api_create(amount=amount,
-                            currency=self.currency,
-                            customer=self.customer,
-                            source=self.payment_method,
-                            capture=capture)
+                                        currency=self.currency,
+                                        customer=self.customer,
+                                        source=self.payment_method,
+                                        capture=capture)
             self.charges._list.append(charge)
 
         if capture:
-            charge._trigger_payment(on_success, on_failure_now, on_failure_later)
+            if self.status == 'requires_capture':
+                Charge._api_capture(charge.id, amount=amount_to_capture,
+                                    statement_descriptor_suffix=self.statement_descriptor_suffix)
+            else:
+                charge._trigger_payment(on_success, on_failure_now, on_failure_later)
+
+    @property
+    def amount_received(self):
+        if len(self.charges._list) > 0:
+            charge = self.charges._list[-1]
+            return charge.amount_captured
+        return 0
 
     @property
     def status(self):
@@ -2005,13 +2020,13 @@ class PaymentIntent(StripeObject):
 
         try:
             if amount_to_capture is not None:
-                assert type(amount_to_capture) is int and amount_to_capture <= obj.amount
+                amount_to_capture = try_convert_to_int(amount_to_capture)
+                assert amount_to_capture <= obj.amount
         except AssertionError:
             raise UserError(400, 'Bad request')
 
         if statement_descriptor_suffix is not None:
             obj.statement_descriptor_suffix = statement_descriptor_suffix
-
 
         obj._trigger_payment(amount_to_capture=amount_to_capture)
         return obj
