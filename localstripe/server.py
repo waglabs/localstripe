@@ -159,6 +159,9 @@ async def auth_middleware(request, handler):
     elif request.path.startswith('/_config/'):
         is_auth = True
 
+    elif request.path.startswith('/healthcheck'):
+        is_auth = True
+
     else:
         # There are exceptions (for example POST /v1/tokens, POST /v1/sources)
         # where authentication can be done using the public key (passed as
@@ -314,9 +317,12 @@ async def flush_store(request):
     store.clear()
     return web.Response()
 
+async def healthcheck(request):
+    return web.Response(body='api.stripe.com at your service! What can I do for you today? (Up)')
 
 app.router.add_post('/_config/webhooks/{id}', config_webhook)
 app.router.add_delete('/_config/data', flush_store)
+app.router.add_get('/healthcheck', healthcheck)
 
 
 def start():
