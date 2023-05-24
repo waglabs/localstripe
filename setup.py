@@ -41,7 +41,8 @@ setup(
             'pytest',
             'Pygments',
             'Faker',
-            'stripe'
+            'stripe',
+            'urllib3 == 1.26.6'
         ]
     }
 )

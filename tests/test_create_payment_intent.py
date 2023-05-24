@@ -70,3 +70,108 @@ def test_invalid_card_failure_on_capture(faker):
 
     assert card_error.value.code == 'card_declined'
     assert card_error.value.user_message == 'Your card was declined.'
+
+
+def test_setup_future_usages_true(faker):
+    customer = create_customer(faker.email(), 'tok_visa')
+    payment_intent = stripe.PaymentIntent.create(
+        amount=2000,
+        currency="usd",
+        description="test",
+        customer=customer.id,
+        capture_method="automatic",
+        metadata={
+            "foo": "bar"
+        },
+        statement_descriptor_suffix="TEST",
+        off_session=True,
+        confirm=True,
+        setup_future_usage=True
+    )
+    assert payment_intent['customer'] == customer.id
+    assert payment_intent['setup_future_usage'] == True
+    assert type(payment_intent.id) is str
+
+
+def test_setup_future_usages_false(faker):
+    customer = create_customer(faker.email(), 'tok_visa')
+    payment_intent = stripe.PaymentIntent.create(
+        amount=2000,
+        currency="usd",
+        description="test",
+        customer=customer.id,
+        capture_method="automatic",
+        metadata={
+            "foo": "bar"
+        },
+        statement_descriptor_suffix="TEST",
+        off_session=True,
+        confirm=True,
+        setup_future_usage=False
+    )
+    assert payment_intent['customer'] == customer.id
+    assert payment_intent['setup_future_usage'] == False
+    assert type(payment_intent.id) is str
+
+
+def test_setup_future_usages_false_by_default(faker):
+    customer = create_customer(faker.email(), 'tok_visa')
+    payment_intent = stripe.PaymentIntent.create(
+        amount=2000,
+        currency="usd",
+        description="test",
+        customer=customer.id,
+        capture_method="automatic",
+        metadata={
+            "foo": "bar"
+        },
+        statement_descriptor_suffix="TEST",
+        off_session=True,
+        confirm=True
+    )
+    assert payment_intent['customer'] == customer.id
+    assert payment_intent['setup_future_usage'] == False
+    assert type(payment_intent.id) is str
+
+
+def test_automatic_payment_methods_true(faker):
+    customer = create_customer(faker.email(), 'tok_visa')
+    payment_intent = stripe.PaymentIntent.create(
+        amount=2000,
+        currency="usd",
+        description="test",
+        customer=customer.id,
+        capture_method="automatic",
+        metadata={
+            "foo": "bar"
+        },
+        statement_descriptor_suffix="TEST",
+        off_session=True,
+        confirm=True,
+        automatic_payment_methods={
+            "enabled": True
+        }
+    )
+    assert payment_intent['customer'] == customer.id
+    assert payment_intent['automatic_payment_methods']['enabled'] == True
+    assert type(payment_intent.id) is str
+
+
+def test_automatic_payment_methods_false_by_default(faker):
+    customer = create_customer(faker.email(), 'tok_visa')
+    payment_intent = stripe.PaymentIntent.create(
+        amount=2000,
+        currency="usd",
+        description="test",
+        customer=customer.id,
+        capture_method="automatic",
+        metadata={
+            "foo": "bar"
+        },
+        statement_descriptor_suffix="TEST",
+        off_session=True,
+        confirm=True
+    )
+    assert payment_intent['customer'] == customer.id
+    assert payment_intent['automatic_payment_methods']['enabled'] == False
+    assert type(payment_intent.id) is str
