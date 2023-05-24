@@ -72,7 +72,7 @@ def test_invalid_card_failure_on_capture(faker):
     assert card_error.value.user_message == 'Your card was declined.'
 
 
-def test_setup_future_usages_true(faker):
+def test_setup_future_usages_on_session(faker):
     customer = create_customer(faker.email(), 'tok_visa')
     payment_intent = stripe.PaymentIntent.create(
         amount=2000,
@@ -86,14 +86,14 @@ def test_setup_future_usages_true(faker):
         statement_descriptor_suffix="TEST",
         off_session=True,
         confirm=True,
-        setup_future_usage=True
+        setup_future_usage='on_session'
     )
     assert payment_intent['customer'] == customer.id
-    assert payment_intent['setup_future_usage'] == True
+    assert payment_intent['setup_future_usage'] == 'on_session'
     assert type(payment_intent.id) is str
 
 
-def test_setup_future_usages_false(faker):
+def test_setup_future_usages_off_session(faker):
     customer = create_customer(faker.email(), 'tok_visa')
     payment_intent = stripe.PaymentIntent.create(
         amount=2000,
@@ -107,14 +107,14 @@ def test_setup_future_usages_false(faker):
         statement_descriptor_suffix="TEST",
         off_session=True,
         confirm=True,
-        setup_future_usage=False
+        setup_future_usage='off_session'
     )
     assert payment_intent['customer'] == customer.id
-    assert payment_intent['setup_future_usage'] == False
+    assert payment_intent['setup_future_usage'] == 'off_session'
     assert type(payment_intent.id) is str
 
 
-def test_setup_future_usages_false_by_default(faker):
+def test_setup_future_usages_null_by_default(faker):
     customer = create_customer(faker.email(), 'tok_visa')
     payment_intent = stripe.PaymentIntent.create(
         amount=2000,
@@ -130,7 +130,7 @@ def test_setup_future_usages_false_by_default(faker):
         confirm=True
     )
     assert payment_intent['customer'] == customer.id
-    assert payment_intent['setup_future_usage'] == False
+    assert payment_intent['setup_future_usage'] == None
     assert type(payment_intent.id) is str
 
 

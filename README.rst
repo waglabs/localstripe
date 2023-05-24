@@ -242,9 +242,7 @@ To quickly build and run localstripe from source:
 
 .. code:: shell
 
- python3 setup.py sdist
- pip3 install --user --upgrade dist/localstripe-*.tar.gz
- localstripe
+ python3 setup.py sdist && pip3 install --upgrade dist/localstripe-*.tar.gz && localstripe
 
 To run tests:
 
@@ -252,7 +250,6 @@ To run tests:
 
  pip install -e ".[dev]"
  pytest ./tests
-
 
 If you plan to open a pull request to improve localstripe, that is so cool! To
 make reviews smooth you should follow `our contributing guidelines

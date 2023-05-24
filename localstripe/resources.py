@@ -1790,7 +1790,7 @@ class PaymentIntent(StripeObject):
     def __init__(self, amount=None, currency=None, customer=None,
                  payment_method=None, metadata=None, capture_method=None,
                  statement_descriptor_suffix=None, description=None,
-                 setup_future_usage=False, automatic_payment_methods=None, **kwargs):
+                 setup_future_usage=None, automatic_payment_methods=None, **kwargs):
         if kwargs:
             raise UserError(400, 'Unexpected ' + ', '.join(kwargs.keys()))
 
@@ -1810,7 +1810,8 @@ class PaymentIntent(StripeObject):
                         payment_method.startswith('src_') or
                         payment_method.startswith('card_'))
             if setup_future_usage is not None:
-                assert type(try_convert_to_bool(setup_future_usage)) is bool
+                assert type(setup_future_usage) is str
+                assert (setup_future_usage == 'off_session' or setup_future_usage == 'on_session')
             if automatic_payment_methods is not None:
                 assert type(automatic_payment_methods) is dict
                 if "enabled" in automatic_payment_methods:
@@ -1846,7 +1847,7 @@ class PaymentIntent(StripeObject):
         self.capture_method = capture_method
         self.statement_descriptor_suffix = statement_descriptor_suffix
         self.description = description
-        self.setup_future_usage = try_convert_to_bool(setup_future_usage)
+        self.setup_future_usage = setup_future_usage
         if automatic_payment_methods is not None:
             self.automatic_payment_methods = {
                 'enabled': try_convert_to_bool(automatic_payment_methods['enabled'])
