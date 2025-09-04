@@ -359,7 +359,7 @@ class BalanceTransaction(StripeObject):
         if kwargs:
             raise UserError(400, 'Unexpected ' + ', '.join(kwargs.keys()))
 
-        li = super()._api_list_all(url, limit, starting_after)
+        li = super()._api_list_all(url, limit=limit, starting_after=starting_after)
         li._list.sort(key=lambda b: b.created, reverse=True)
         return li
 
@@ -396,9 +396,6 @@ class Card(StripeObject):
             assert type(number) is str and len(number) == 16
             assert type(exp_month) is int
             assert exp_month >= 1 and exp_month <= 12
-            assert type(exp_year) is int
-            if exp_year > 0 and exp_year < 100:
-                exp_year += 2000
             assert exp_year >= 2017 and exp_year <= 2100
             assert type(cvc) is str and len(cvc) == 3
         except AssertionError:
@@ -2262,7 +2259,8 @@ class PaymentMethod(StripeObject):
 
 extra_apis.extend((
     ('POST', '/v1/payment_methods/{id}/attach', PaymentMethod._api_attach),
-    ('POST', '/v1/payment_methods/{id}/detach', PaymentMethod._api_detach)))
+    ('POST', '/v1/payment_methods/{id}/detach', PaymentMethod._api_detach),
+    ('GET', '/v1/payment_methods', PaymentMethod._api_list_all)))
 
 
 class Plan(StripeObject):
