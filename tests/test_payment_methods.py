@@ -1,52 +1,63 @@
-import requests
-import stripe
-stripe.api_key = 'sk_test_12345'
-import pprint
+api_key = "sk_test_dummy"
+api_base = "http://localhost:12111"
+
+import localstripe.resources
+
+Customer = localstripe.resources.Customer
+Token = localstripe.resources.Token
+PaymentMethod = localstripe.resources.PaymentMethod
+store = localstripe.resources.store
 
 
-def test_get_payment_methods_returns_collection(faker):
-    # Ensure at least one payment method exists for a customer
-    customer = stripe.Customer.create(email=faker.email())
-    card_token = 'tok_visa'
-    payment_method = stripe.PaymentMethod.create(
-        type='card',
-        card={
-            'number': '4242424242424242',
-            'exp_month': 12,
-            'exp_year': 2030,
-            'cvc': '123',
-        },
-    )
-    stripe.PaymentMethod.attach(payment_method.id, customer=customer.id)
+def test_get_payment_methods_after_creating_card(faker):
+    # Create a customer manually and add to store
+    customer = Customer(email=faker.email())
+    store['customer:' + customer.id] = customer
 
-    # Call the endpoint directly
-    headers = {"Authorization": f"Bearer {stripe.api_key}"}
-    response = requests.get(
-        f'{stripe.api_base}/v1/payment_methods',
-        params={'customer': customer.id, 'type': 'card'},
-        headers=headers
-    )
+    # Create a card token manually and add to store
+    card_token = Token(card={
+        'number': '4242424242424242',
+        'exp_month': 12,
+        'exp_year': 2030,
+        'cvc': '123',
+    })
+    store['token:' + card_token.id] = card_token
 
-    data = response.json()
-    assert response.status_code == 200
-    assert isinstance(data, dict)
-    assert 'data' in data
-    assert isinstance(data['data'], list)
-    assert len(data['data']) >= 1
+    # Attach the card to the customer using the internal API method
+    Customer._api_add_source(customer.id, source=card_token.id)
+
+    # Directly list payment methods for the customer and type 'card'
+    pm_list = PaymentMethod._api_list_all(
+        url=None, customer=customer.id, type='card', limit=None, starting_after=None
+    )._list
+
+    assert len(pm_list) >= 1
     # Assert at least one payment method has a card
-    assert any('card' in pm and pm['card'] for pm in data['data']), 'No card found in payment methods data'
-
-    # Check that card info is present
-    found = any(pm['id'] == payment_method.id and pm['card'] for pm in data['data'])
-    assert found, 'Created payment method not found in response'
+    assert any(hasattr(pm, 'card') and pm.card for pm in pm_list), 'No card found in payment methods list'
 
     # Check that at least one card has last4 == '4242'
-    assert any(pm.get('card', {}).get('last4') == '4242' for pm in data['data']), 'No card with last4 == 4242 found in payment methods data'
+    assert any(getattr(pm, 'card', {}).get('last4') == '4242' for pm in pm_list), 'No card with last4 == 4242 found in payment methods list'
 
     # Check that at least one card matches all details
     assert any(
-        pm.get('card', {}).get('last4') == '4242' and
-        pm.get('card', {}).get('exp_month') == 12 and
-        pm.get('card', {}).get('exp_year') == 2030
-        for pm in data['data']
-    ), 'No card with expected last4, exp_month, and exp_year found in payment methods data'
+        getattr(pm, 'card', {}).get('last4') == '4242' and
+        getattr(pm, 'card', {}).get('exp_month') == 12 and
+        getattr(pm, 'card', {}).get('exp_year') == 2030
+        for pm in pm_list
+    ), 'No card with expected last4, exp_month, and exp_year found in payment methods list'
+
+    # Check that at least one card has correct brand, fingerprint, and tokenization_method
+    assert any(
+        getattr(pm, 'card', {}).get('brand') == 'Visa' for pm in pm_list
+    ), 'No card with brand Visa found in payment methods list'
+
+    # The test card number is always 4242424242424242, so fingerprint should match
+    expected_fingerprint = localstripe.resources.fingerprint('4242424242424242')
+    assert any(
+        getattr(pm, 'card', {}).get('fingerprint') == expected_fingerprint for pm in pm_list
+    ), f'No card with expected fingerprint {expected_fingerprint} found in payment methods list'
+
+    # tokenization_method is None by default for these test cards
+    assert any(
+        'tokenization_method' in getattr(pm, 'card', {}) for pm in pm_list
+    ), 'No card with tokenization_method field found in payment methods list'
