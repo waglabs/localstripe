@@ -903,6 +903,32 @@ class Customer(StripeObject):
 
         if isinstance(source_obj, Card):
             source_obj.customer = id
+            payment_method = getattr(source_obj, 'payment_method', None)
+            if payment_method is None:
+                payment_method = PaymentMethod(
+                    type='card',
+                    card={
+                        'number': source_obj._card_number,
+                        'exp_month': source_obj.exp_month,
+                        'exp_year': source_obj.exp_year,
+                        'cvc': getattr(source_obj, 'cvc', None),
+                        'brand': getattr(source_obj, 'brand', None),
+                        'fingerprint': getattr(source_obj, 'fingerprint', None),
+                        'tokenization_method': getattr(source_obj, 'tokenization_method', None)
+                    },
+                    billing_details={
+                        'address_city': getattr(source_obj, 'address_city', None),
+                        'address_country': getattr(source_obj, 'address_country', None),
+                        'address_line1': getattr(source_obj, 'address_line1', None),
+                        'address_line2': getattr(source_obj, 'address_line2', None),
+                        'address_state': getattr(source_obj, 'address_state', None),
+                        'address_zip': getattr(source_obj, 'address_zip', None),
+                        'name': getattr(source_obj, 'name', None)
+                    }
+                )
+                source_obj.payment_method = payment_method
+            PaymentMethod._api_attach(payment_method.id, customer=id)
+            payment_method.customer = id
 
         obj.sources._list.append(source_obj)
 
@@ -2101,19 +2127,19 @@ class PaymentMethod(StripeObject):
             assert type in ('card', 'sepa_debit')
             assert billing_details is None or _type(billing_details) is dict
             if type == 'card':
-                assert _type(card) is dict and card.keys() == {
-                    'number', 'exp_month', 'exp_year', 'cvc'}
+                assert _type(card) is dict and card.keys() >= {'number', 'exp_month', 'exp_year'}
                 card['exp_month'] = try_convert_to_int(card['exp_month'])
                 card['exp_year'] = try_convert_to_int(card['exp_year'])
                 assert _type(card['number']) is str
                 assert _type(card['exp_month']) is int
                 assert _type(card['exp_year']) is int
-                assert _type(card['cvc']) is str
+                if card.get('cvc') is not None:
+                    assert _type(card['cvc']) is str
+                    assert len(card['cvc']) == 3
                 assert len(card['number']) == 16
                 assert card['exp_month'] >= 1 and card['exp_month'] <= 12
                 if card['exp_year'] > 0 and card['exp_year'] < 100:
                     card['exp_year'] += 2000
-                assert len(card['cvc']) == 3
             elif type == 'sepa_debit':
                 assert _type(sepa_debit) is dict
                 assert 'iban' in sepa_debit
@@ -2139,11 +2165,12 @@ class PaymentMethod(StripeObject):
                 'exp_month': card['exp_month'],
                 'exp_year': card['exp_year'],
                 'last4': self._card_number[-4:],
-                'brand': 'visa',
-                'country': 'FR',
-                'fingerprint': fingerprint(self._card_number),
-                'funding': 'credit',
+                'brand': card.get('brand', 'visa'),
+                'country': card.get('country', 'FR'),
+                'fingerprint': card.get('fingerprint', fingerprint(self._card_number)),
+                'funding': card.get('funding', 'credit'),
                 'three_d_secure_usage': {'supported': True},
+                'tokenization_method': card.get('tokenization_method'),
             }
         elif self.type == 'sepa_debit':
             self._sepa_debit_iban = \
@@ -2213,6 +2240,7 @@ class PaymentMethod(StripeObject):
                             {'code': 'card_declined'})
 
         obj.customer = customer
+        store[cls.object + ':' + obj.id] = obj
         return obj
 
     @classmethod
@@ -2262,7 +2290,8 @@ class PaymentMethod(StripeObject):
 
 extra_apis.extend((
     ('POST', '/v1/payment_methods/{id}/attach', PaymentMethod._api_attach),
-    ('POST', '/v1/payment_methods/{id}/detach', PaymentMethod._api_detach)))
+    ('POST', '/v1/payment_methods/{id}/detach', PaymentMethod._api_detach),
+    ('GET', '/v1/payment_methods', PaymentMethod._api_list_all)))
 
 
 class Plan(StripeObject):
@@ -2936,7 +2965,6 @@ class Subscription(StripeObject):
         pending_items = [ii for ii in InvoiceItem._api_list_all(
             None, customer=self.customer, limit=99)._list
                          if ii.invoice is None]
-
         for si in self.items._list:
             pending_items.append(si)
 
@@ -3448,6 +3476,8 @@ class Token(StripeObject):
 
         self.type = 'card'
         self.card = card_obj
+
+        self.customer = customer
 
     @classmethod
     def _api_retrieve(cls, id):
