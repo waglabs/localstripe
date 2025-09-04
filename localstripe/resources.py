@@ -2263,7 +2263,7 @@ class PaymentMethod(StripeObject):
 extra_apis.extend((
     ('POST', '/v1/payment_methods/{id}/attach', PaymentMethod._api_attach),
     ('POST', '/v1/payment_methods/{id}/detach', PaymentMethod._api_detach),
-    ('POST', '/v1/payment_methods', PaymentMethod._api_list_all)))
+    ('GET', '/v1/payment_methods', PaymentMethod._api_list_all)))
 
 
 class Plan(StripeObject):
