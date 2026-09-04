@@ -15,18 +15,20 @@ jobs:
     strategy:
       matrix:
         python-version:
-          - 3.7
-          - 3.8
-          - 3.9
-          - nightly
+          - '3.9'
+          - '3.10'
+          - '3.11'
+          - '3.12'
+          - '3.13'
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
       - name: Set up Python ${{ matrix.pyver }}
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.pyver }}
-      - run: python setup.py sdist
+      - run: pip install 'pip >=23' build
+      - run: python -m build
       - run: pip install dist/localstripe-*.tar.gz
       - run: pip install pytest Faker stripe
       - run: python -m localstripe &

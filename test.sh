@@ -37,8 +37,14 @@ cus=$(curl -sSfg -u $SK: $HOST/v1/customers \
       | grep -oE 'cus_\w+' | head -n 1)
 
 curl -sSfg -u $SK: $HOST/v1/customers/$cus/tax_ids \
-     -d type=eu_vat -d value=DE123456789 \
+     -d type=eu_vat \
+     -d value=DE123456789 \
      -d expand[]=customer
+
+tax_id=$(curl -sSfg -u $SK: $HOST/v1/customers/$cus/tax_ids \
+              -d type=eu_vat \
+              -d value=BE00111222333 \
+         | grep -oE 'txi_\w+' | head -n 1)
 
 curl -sSfg -u $SK: $HOST/v1/customers/$cus?expand[]=tax_ids.data.customer
 
@@ -47,6 +53,14 @@ curl -sSfg -u $SK: $HOST/v1/customers/$cus?expand[]=subscriptions.data.items.dat
 code=$(curl -sg -o /dev/null -w '%{http_code}' -u $SK: \
        $HOST/v1/customers/$cus?expand[]=subscriptions.data.items.data.tax_ids)
 [ "$code" -eq 400 ]
+
+curl -sSfg -u $SK: $HOST/v1/customers/$cus/tax_ids/$tax_id
+
+curl -sSfg -u $SK: -X DELETE $HOST/v1/customers/$cus/tax_ids/$tax_id
+
+code=$(curl -sg -o /dev/null -w '%{http_code}' -u $SK: \
+       $HOST/v1/customers/$cus/tax_ids/$tax_id)
+[ "$code" -eq 404 ]
 
 txr1=$(curl -sSfg -u $SK: $HOST/v1/tax_rates \
             -d display_name=VAT \
@@ -61,6 +75,14 @@ txr2=$(curl -sSfg -u $SK: $HOST/v1/tax_rates \
             -d description='TVA France taux réduit' \
             -d jurisdiction=FR \
             -d percentage=10.0 \
+            -d inclusive=false \
+      | grep -oE 'txr_\w+' | head -n 1)
+
+txr3=$(curl -sSfg -u $SK: $HOST/v1/tax_rates \
+            -d display_name=VAT \
+            -d description='TVA DOM taux normal' \
+            -d jurisdiction=FR \
+            -d percentage=8.5 \
             -d inclusive=false \
       | grep -oE 'txr_\w+' | head -n 1)
 
@@ -330,7 +352,7 @@ captured=$(
 refunded=$(
   curl -sSfg -u $SK: $HOST/v1/charges/$charge \
   | grep -oE '"amount_refunded": 200,')
-[ -n "$captured" ]
+[ -n "$refunded" ]
 
 # create a pre-auth charge
 charge=$(
@@ -353,7 +375,7 @@ captured=$(
 refunded=$(
   curl -sSfg -u $SK: $HOST/v1/charges/$charge \
   | grep -oE '"amount_refunded": 0,')
-[ -n "$captured" ]
+[ -n "$refunded" ]
 
 # cannot capture an already captured charge
 code=$(
@@ -361,6 +383,20 @@ code=$(
        -u $SK: $HOST/v1/charges/$charge/capture \
        -X POST)
 [ "$code" = 400 ]
+
+# now refund it:
+succeeded=$(
+  curl -sSfg -u $SK: $HOST/v1/refunds \
+       -d charge=$charge \
+       -X POST \
+  | grep -oE '"status": "succeeded"')
+[ -n "$succeeded" ]
+
+# the charge agrees that it was refunded:
+refunded=$(
+  curl -sSfg -u $SK: $HOST/v1/charges/$charge \
+  | grep -oE '"amount_refunded": 1000,')
+[ -n "$refunded" ]
 
 sepa_cus=$(
   curl -sSfg -u $SK: $HOST/v1/customers \
@@ -436,10 +472,15 @@ code=$(curl -sg -o /dev/null -w "%{http_code}" -u $SK: \
             $HOST/v1/invoices/upcoming?customer=$cus)
 [ "$code" = 404 ]
 
+code=$(curl -sg -o /dev/null -w "%{http_code}" -u $SK: \
+            $HOST/v1/invoices/create_preview \
+            -d customer=$cus)
+[ "$code" = 404 ]
+
 curl -sSfg -u $SK: $HOST/v1/subscriptions \
      -d customer=$cus \
      -d items[0][plan]=basique-mensuel \
-     -d expand[]=latest_invoice.payment_intent
+     -d expand[]=latest_invoice.payment_intent.latest_charge
 
 res=$(curl -sSfg -u $SK: $HOST/v1/subscriptions \
            -d customer=$cus \
@@ -455,6 +496,17 @@ curl -sSfg -u $SK: $HOST/v1/invoices/upcoming?customer=$cus
 curl -sSfg -u $SK: $HOST/v1/invoices/upcoming?customer=$cus\&subscription_items[0][plan]=pro-annuel\&subscription_tax_percent=20
 
 curl -sSfg -u $SK: $HOST/v1/invoices/upcoming?customer=$cus\&subscription=$sub\&subscription_items[0][id]=si_RBrVStcKDimMnp\&subscription_items[0][plan]=basique-annuel\&subscription_proration_date=1504182686\&subscription_tax_percent=20
+
+curl -sSfg -u $SK: $HOST/v1/invoices/create_preview \
+     -d customer=$cus
+
+curl -sSfg -u $SK: $HOST/v1/invoices/create_preview \
+     -d customer=$cus \
+     -d subscription=$sub \
+     -d subscription_details[default_tax_rates][0]=$txr1 \
+     -d subscription_details[items][0][id]=si_RBrVStcKDimMnp \
+     -d subscription_details[items][0][plan]=basique-annuel \
+     -d subscription_details[proration_date]=1504182686
 
 curl -sSfg -u $SK: $HOST/v1/invoices/$in/lines
 
@@ -532,7 +584,7 @@ cus=$(curl -sSfg -u $SK: $HOST/v1/customers \
            -d email=john.malkovich@example.com \
       | grep -oE 'cus_\w+' | head -n 1)
 
-pm=$(curl -sSfg -u $SK: $HOST/v1/payment_methods \
+pm_card_okay=$(curl -sSfg -u $SK: $HOST/v1/payment_methods \
           -d type=card \
           -d card[number]=4242424242424242 \
           -d card[exp_month]=12 \
@@ -540,19 +592,19 @@ pm=$(curl -sSfg -u $SK: $HOST/v1/payment_methods \
           -d card[cvc]=123 \
      | grep -oE 'pm_\w+' | head -n 1)
 
-curl -sSfg -u $SK: $HOST/v1/payment_methods/$pm/attach \
+curl -sSfg -u $SK: $HOST/v1/payment_methods/$pm_card_okay/attach \
      -d customer=$cus
 
 curl -sSfg -u $SK: $HOST/v1/customers/$cus \
-     -d invoice_settings[default_payment_method]=$pm
+     -d invoice_settings[default_payment_method]=$pm_card_okay
 
 curl -sSfg -u $SK: $HOST/v1/customers/$cus?expand[]=invoice_settings.default_payment_method
 
 curl -sSfg -u $SK: $HOST/v1/payment_methods?customer=$cus\&type=card
 
-curl -sSfg -u $SK: $HOST/v1/payment_methods/$pm/detach -X POST
+curl -sSfg -u $SK: $HOST/v1/payment_methods/$pm_card_okay/detach -X POST
 
-pm=$(curl -sSfg -u $SK: $HOST/v1/payment_methods \
+pm_card_decline_on_attach=$(curl -sSfg -u $SK: $HOST/v1/payment_methods \
           -d type=card \
           -d card[number]=4000000000000002 \
           -d card[exp_month]=4 \
@@ -560,7 +612,7 @@ pm=$(curl -sSfg -u $SK: $HOST/v1/payment_methods \
           -d card[cvc]=123 \
      | grep -oE 'pm_\w+' | head -n 1)
 code=$(curl -sg -o /dev/null -w "%{http_code}" -u $SK: \
-            $HOST/v1/payment_methods/$pm/attach \
+            $HOST/v1/payment_methods/$pm_card_decline_on_attach/attach \
             -d customer=$cus)
 [ "$code" = 402 ]
 
@@ -570,7 +622,14 @@ res=$(curl -sSfg -u $SK: $HOST/v1/setup_intents -X POST)
 seti=$(echo "$res" | grep '"id"' | grep -oE 'seti_\w+' | head -n 1)
 seti_secret=$(echo $res | grep -oE 'seti_\w+_secret_\w+' | head -n 1)
 
-curl -sSfg -u $SK: $HOST/v1/setup_intents/$seti/confirm -X POST
+# If there's no payment_method in the either the SetupIntent creation or the
+# confirm call, the confirm call fails:
+code=$(curl -sg -o /dev/null -w '%{http_code}' -u $SK: \
+       -X POST $HOST/v1/setup_intents/$seti/confirm)
+[ "$code" -eq 400 ]
+
+curl -sSfg -u $SK: $HOST/v1/setup_intents/$seti/confirm -X POST \
+     -d payment_method=pm_card_visa
 
 curl -sSfg -u $SK: $HOST/v1/setup_intents/$seti/cancel -X POST
 
@@ -589,6 +648,53 @@ curl -sSfg $HOST/v1/setup_intents/$seti/confirm \
      -d payment_method_data[card][exp_month]=4 \
      -d payment_method_data[card][exp_year]=24 \
      -d payment_method_data[billing_details][address][postal_code]=42424
+
+# We can also pass a payment method ID to setup_intents/*/confirm:
+res=$(curl -sSfg -u $SK: $HOST/v1/setup_intents -X POST)
+seti=$(echo "$res" | grep '"id"' | grep -oE 'seti_\w+' | head -n 1)
+seti_secret=$(echo $res | grep -oE 'seti_\w+_secret_\w+' | head -n 1)
+status=$(
+  curl -sSfg $HOST/v1/setup_intents/$seti/confirm \
+       -d key=pk_test_sldkjflaksdfj \
+       -d client_secret=$seti_secret \
+       -d payment_method=$pm_card_okay \
+    | grep -oE '"status": "succeeded"')
+[ -n "$status" ]
+
+# ... and payment method IDs on bad cards fail on setup_intents/*/confirm:
+res=$(curl -sSfg -u $SK: $HOST/v1/setup_intents -X POST)
+seti=$(echo "$res" | grep '"id"' | grep -oE 'seti_\w+' | head -n 1)
+seti_secret=$(echo $res | grep -oE 'seti_\w+_secret_\w+' | head -n 1)
+code=$(
+  curl -sg -w "%{http_code}" -o /dev/null $HOST/v1/setup_intents/$seti/confirm \
+       -d key=pk_test_sldkjflaksdfj \
+       -d client_secret=$seti_secret \
+       -d payment_method=$pm_card_decline_on_attach)
+[ "$code" = 402 ]
+
+# We can also pass a special well-known payment method ID to
+# setup_intents/*/confirm:
+res=$(curl -sSfg -u $SK: $HOST/v1/setup_intents -X POST)
+seti=$(echo "$res" | grep '"id"' | grep -oE 'seti_\w+' | head -n 1)
+seti_secret=$(echo $res | grep -oE 'seti_\w+_secret_\w+' | head -n 1)
+status=$(
+  curl -sSfg $HOST/v1/setup_intents/$seti/confirm \
+       -d key=pk_test_sldkjflaksdfj \
+       -d client_secret=$seti_secret \
+       -d payment_method=pm_card_visa \
+    | grep -oE '"status": "succeeded"')
+[ -n "$status" ]
+
+# ... including well-known bad payment method IDs:
+res=$(curl -sSfg -u $SK: $HOST/v1/setup_intents -X POST)
+seti=$(echo "$res" | grep '"id"' | grep -oE 'seti_\w+' | head -n 1)
+seti_secret=$(echo $res | grep -oE 'seti_\w+_secret_\w+' | head -n 1)
+code=$(
+  curl -sg -w "%{http_code}" -o /dev/null $HOST/v1/setup_intents/$seti/confirm \
+       -d key=pk_test_sldkjflaksdfj \
+       -d client_secret=$seti_secret \
+       -d payment_method=pm_card_visa_chargeDeclined)
+[ "$code" = 402 ]
 
 # off_session cannot be used when confirm is false
 code=$(
@@ -715,11 +821,21 @@ charge=$(
        -d capture=false \
   | grep -oE 'ch_\w+' | head -n 1)
 
-# verify charge status pending
+# verify charge status succeeded.
+# pre-authed charges surprisingly show as status=succeeded with
+# charged=false.
+# (To see this in action, run the example charge creation from
+# https://docs.stripe.com/api/charges/create with -d capture=false,
+# and then GET .../v1/charges/$charge.)
 status=$(
   curl -sSfg -u $SK: $HOST/v1/charges/$charge \
-  | grep -oE '"status": "pending"')
+  | grep -oE '"status": "succeeded"')
 [ -n "$status" ]
+
+not_captured=$(
+  curl -sSfg -u $SK: $HOST/v1/charges/$charge \
+  | grep -oE '"captured": false')
+[ -n "$not_captured" ]
 
 # capture the charge
 curl -sSfg -u $SK: $HOST/v1/charges/$charge/capture \
@@ -732,7 +848,7 @@ status=$(
 [ -n "$status" ]
 
 # create a non-chargeable source
-card=$(
+bad_card=$(
   curl -sSfg -u $SK: $HOST/v1/customers/$cus/cards \
        -d source[object]=card \
        -d source[number]=4000000000000341 \
@@ -745,7 +861,7 @@ card=$(
 code=$(
   curl -sg -o /dev/null -w "%{http_code}" \
        -u $SK: $HOST/v1/charges \
-       -d source=$card \
+       -d source=$bad_card \
        -d amount=1000 \
        -d currency=usd)
 [ "$code" = 402 ]
@@ -753,7 +869,7 @@ code=$(
 # create a normal charge
 charge=$(
   curl -sg -u $SK: $HOST/v1/charges \
-       -d source=$card \
+       -d source=$bad_card \
        -d amount=1000 \
        -d currency=usd \
   | grep -oE 'ch_\w+' | head -n 1)
@@ -764,12 +880,19 @@ status=$(
   | grep -oE '"status": "failed"')
 [ -n "$status" ]
 
+# cannot refund a failed charge
+code=$(
+  curl -sg -o /dev/null -w "%{http_code}" \
+       -u $SK: $HOST/v1/refunds \
+       -d charge=$charge \
+       -X POST)
+[ "$code" = 400 ]
 
 # create a pre-auth charge, observe 402 response
 code=$(
   curl -sg -o /dev/null -w "%{http_code}" \
        -u $SK: $HOST/v1/charges \
-       -d source=$card \
+       -d source=$bad_card \
        -d amount=1000 \
        -d currency=usd \
        -d capture=false)
@@ -778,7 +901,7 @@ code=$(
 # create a pre-auth charge
 charge=$(
   curl -sg -u $SK: $HOST/v1/charges \
-       -d source=$card \
+       -d source=$bad_card \
        -d amount=1000 \
        -d currency=usd \
        -d capture=false \
@@ -934,3 +1057,241 @@ code=$(curl -sg -o /dev/null -w '%{http_code}' -u $SK: $HOST/v1/customers \
 total_count=$( curl -sSfg -u $SK: $HOST/v1/customers \
              | grep -oE '"total_count": 9,')
 [ -n "$total_count" ]
+
+cus=$(curl -sSfg -u $SK: $HOST/v1/customers \
+           -d balance='-20000000' \
+      | grep -oE 'cus_\w+' | head -n 1)
+
+amount=$(curl -sSfg -u $SK: $HOST/v1/subscriptions \
+              -d customer=$cus \
+              -d items[0][plan]=basique-mensuel \
+              -d expand[]=latest_invoice \
+         | grep -oP 'amount_due": \K([0-9]+)')
+[ "$amount" -eq 0 ]
+
+charge=$(curl -sSfgG -u $SK: $HOST/v1/invoices \
+              -d customer=$cus \
+              -d expand[]=data.charge.refunds \
+         | grep -oE '"charge": null,')
+[ -n "$charge" ]
+
+### test payment_intents, which are supported and often preferred instead of
+### charges in many APIs:
+
+# new payment_intents are captured by default
+captured=$(
+  curl -sSfg -u $SK: $HOST/v1/payment_intents \
+       -d customer=$cus \
+       -d payment_method=$card \
+       -d amount=1000 \
+       -d confirm=true \
+       -d currency=usd \
+  | grep -oE '"captured": true,')
+[ -n "$captured" ]
+
+# create a pre-auth payment_intent
+payment_intent=$(
+  curl -sSfg -u $SK: $HOST/v1/payment_intents \
+       -d customer=$cus \
+       -d payment_method=$card \
+       -d amount=1000 \
+       -d confirm=true \
+       -d currency=usd \
+       -d capture_method=manual \
+  | grep -oE 'pi_\w+' | head -n 1)
+
+# we don't get a payment_intent.succeeded event from the pre-auth:
+succeeded_event=$(
+  curl -sSfg -u $SK: "$HOST/v1/events?type=payment_intent.succeeded" \
+  | grep -oE "\"id\": \"$payment_intent\"" || true)
+[ -z "$succeeded_event" ]
+
+# payment_intent was not captured
+captured=$(
+  curl -sSfg -u $SK: $HOST/v1/payment_intents/$payment_intent \
+  | grep -oE '"status": "requires_capture"')
+[ -n "$captured" ]
+
+# cannot capture more than pre-authed amount
+code=$(
+  curl -sg -o /dev/null -w "%{http_code}" \
+       -u $SK: $HOST/v1/payment_intents/$payment_intent/capture \
+       -d amount=2000)
+[ "$code" = 400 ]
+
+# can capture less than the pre-auth amount
+captured=$(
+  curl -sSfg -u $SK: $HOST/v1/payment_intents/$payment_intent/capture \
+       -d amount_to_capture=800 \
+  | grep -oE '"status": "succeeded"')
+[ -n "$captured" ]
+
+# we do get a payment_intent.succeeded event from the capture:
+succeeded_event=$(
+  curl -sSfg -u $SK: "$HOST/v1/events?type=payment_intent.succeeded" \
+  | grep -oE "\"id\": \"$payment_intent\"")
+[ -n "$succeeded_event" ]
+
+# difference between pre-auth and capture is refunded
+refunded=$(
+  curl -sSfg -u $SK: $HOST/v1/payment_intents/$payment_intent \
+  | grep -oE '"amount_refunded": 200,')
+[ -n "$refunded" ]
+
+# create a pre-auth payment_intent
+payment_intent=$(
+  curl -sSfg -u $SK: $HOST/v1/payment_intents \
+       -d customer=$cus \
+       -d payment_method=$card \
+       -d amount=1000 \
+       -d confirm=true \
+       -d currency=usd \
+       -d capture_method=manual \
+  | grep -oE 'pi_\w+' | head -n 1)
+
+# capture the full amount (default)
+captured=$(
+  curl -sSfg -u $SK: $HOST/v1/payment_intents/$payment_intent/capture \
+       -X POST \
+  | grep -oE '"captured": true,')
+[ -n "$captured" ]
+
+# none is refunded
+refunded=$(
+  curl -sSfg -u $SK: $HOST/v1/payment_intents/$payment_intent \
+  | grep -oE '"amount_refunded": 0,')
+[ -n "$refunded" ]
+
+# cannot capture an already captured payment_intent
+code=$(
+  curl -sg -o /dev/null -w "%{http_code}" \
+       -u $SK: $HOST/v1/payment_intents/$payment_intent/capture \
+       -X POST)
+[ "$code" = 400 ]
+
+# now refund it:
+succeeded=$(
+  curl -sSfg -u $SK: $HOST/v1/refunds \
+       -d payment_intent=$payment_intent \
+       -X POST \
+  | grep -oE '"status": "succeeded"')
+[ -n "$succeeded" ]
+
+# the payment_intent agrees that it was refunded:
+refunded=$(
+  curl -sSfg -u $SK: $HOST/v1/payment_intents/$payment_intent \
+  | grep -oE '"amount_refunded": 1000,')
+[ -n "$refunded" ]
+
+# Create a payment intent on a bad card:
+code=$(
+  curl -sg -u $SK: $HOST/v1/payment_intents  -o /dev/null -w "%{http_code}" \
+       -d customer=$cus \
+       -d payment_method=$bad_card \
+       -d amount=1000 \
+       -d confirm=true \
+       -d currency=usd)
+[ "$code" = 402 ]
+
+# Once more with a delayed confirm:
+payment_intent=$(
+  curl -sSfg -u $SK: $HOST/v1/payment_intents \
+       -d customer=$cus \
+       -d payment_method=$bad_card \
+       -d amount=1000 \
+       -d confirm=false \
+       -d currency=usd \
+  | grep -oE 'pi_\w+' | head -n 1)
+
+# now run the confirm; it fails because the card is bad:
+code=$(
+  curl -sg -u $SK: $HOST/v1/payment_intents/$payment_intent/confirm \
+       -X POST -o /dev/null -w "%{http_code}")
+[ "$code" = 402 ]
+
+# we get a payment_intent.payment_failed event:
+failed_event=$(
+  curl -sSfg -u $SK: "$HOST/v1/events?type=payment_intent.payment_failed" \
+  | grep -oE "\"id\": \"$payment_intent\"")
+[ -n "$failed_event" ]
+
+# we don't get a payment_intent.succeeded event:
+succeeded_event=$(
+  curl -sSfg -u $SK: "$HOST/v1/events?type=payment_intent.succeeded" \
+  | grep -oE "\"id\": \"$payment_intent\"" || true)
+[ -z "$succeeded_event" ]
+
+## test event timestamp filtering:
+first_created=$(
+  curl -sSfg -u $SK: "$HOST/v1/events" \
+  | grep -oP -m 1 'created": \K([0-9]+)' || true)
+[ -n "$first_created" ]
+
+total_count=$(curl -sSfg -u $SK: $HOST/v1/events \
+              | grep -oP '^  "total_count": \K([0-9]+)')
+[ "$total_count" -gt 1 ]
+
+count=$(
+  curl -sSfg -u $SK: "$HOST/v1/events?created[lte]=$first_created" \
+  | grep -oP '^  "total_count": \K([0-9]+)')
+[ "$count" -le "$total_count" ]
+
+count=$(
+  curl -sSfg -u $SK: "$HOST/v1/events?created[lte]=$first_created&created[gt]=9999999999" \
+  | grep -oP '^  "total_count": \K([0-9]+)')
+[ "$count" -eq 0 ]
+
+# Create a customer with card 4000000000000341 (that fails upon payment) and
+# make sure creating the subscription doesn't fail (although it creates it with
+# status 'incomplete'). This how Stripe behaves, see
+# https://github.com/adrienverge/localstripe/pull/232#issuecomment-2400000513
+cus=$(curl -sSfg -u $SK: $HOST/v1/customers \
+           -d email=failing-card-no-402-please@example.com \
+      | grep -oE 'cus_\w+' | head -n 1)
+res=$(curl -sSfg -u $SK: -X POST $HOST/v1/setup_intents)
+seti=$(echo "$res" | grep '"id"' | grep -oE 'seti_\w+' | head -n 1)
+seti_secret=$(echo $res | grep -oE 'seti_\w+_secret_\w+' | head -n 1)
+res=$(curl -sSfg $HOST/v1/setup_intents/$seti/confirm \
+           -d key=pk_test_sldkjflaksdfj \
+           -d client_secret=$seti_secret \
+           -d payment_method_data[type]=card \
+           -d payment_method_data[card][number]=4000000000000341 \
+           -d payment_method_data[card][cvc]=242 \
+           -d payment_method_data[card][exp_month]=4 \
+           -d payment_method_data[card][exp_year]=2030 \
+           -d payment_method_data[billing_details][address][postal_code]=42424)
+pm=$(echo "$res" | grep '"payment_method"' | grep -oE 'pm_\w+' | head -n 1)
+curl -u $SK: $HOST/v1/payment_methods/$pm/attach -d customer=$cus
+curl -sSfg -u $SK: $HOST/v1/customers/$cus \
+     -d invoice_settings[default_payment_method]=$pm
+status=$(
+  curl -sSfg -u $SK: $HOST/v1/subscriptions \
+       -d customer=$cus \
+       -d items[0][plan]=basique-annuel \
+  | grep -oE '"status": "incomplete"')
+[ -n "$status" ]
+
+cus=$(curl -sSfg -u $SK: $HOST/v1/customers \
+           -d description='This customer will have a subscription with a discount' \
+           -d email=discount@bar.com \
+      | grep -oE 'cus_\w+' | head -n 1)
+
+curl -sSfg -u $SK: $HOST/v1/customers/$cus/sources \
+     -d source=$tok
+
+curl -sSfg -u $SK: $HOST/v1/invoiceitems \
+     -d customer=$cus \
+     -d amount=-4900 \
+     -d currency=eur \
+     -d description="One time discount" \
+     -d tax_rates[]=$txr3
+
+inv=$(curl -sSfg -u $SK: $HOST/v1/subscriptions \
+           -d customer=$cus \
+           -d items[0][plan]=basique-annuel \
+           -d items[0][tax_rates][0]=$txr3 \
+      | grep -oE 'in_\w+' | head -n 1)
+
+total=$(curl -sSfg -u $SK: $HOST/v1/invoices/$inv \
+        | grep -oP '"total": \K([0-9]+)' )
+[ "$total" -eq 16383 ]
