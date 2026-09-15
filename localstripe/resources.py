@@ -2142,6 +2142,12 @@ class PaymentIntent(StripeObject):
 
     def _confirm(self, on_failure_now):
         self._authentication_failed = False
+        # Real Stripe returns a 400 with `invalid_request_error` when confirm
+        # is called on a PaymentIntent that has no payment method attached and
+        # none supplied. Upstream localstripe crashes on
+        # `PaymentMethod._api_retrieve(None)`; match Stripe instead.
+        if self.payment_method is None:
+            raise UserError(400, 'Bad request')
         payment_method = PaymentMethod._api_retrieve(self.payment_method)
         if payment_method._requires_authentication():
             self.next_action = {
