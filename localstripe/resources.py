@@ -514,6 +514,27 @@ class Charge(StripeObject):
         self.receipt_number = None
         self.payment_intent = None
         self.payment_method = source.id
+        # Stripe mirrors the payment method onto the charge under a key named
+        # after its type. Present on every charge since API version
+        # 2018-11-08, a legacy card-source charge included. A PaymentMethod
+        # keeps those fields in a dict; a legacy Card keeps them on itself and
+        # spells the brand 'Visa', where Stripe reports it lowercase here.
+        if isinstance(source, PaymentMethod):
+            details = dict(getattr(source, source.type))
+        else:
+            details = {
+                'brand': source.brand.lower(),
+                'country': source.country,
+                'exp_month': source.exp_month,
+                'exp_year': source.exp_year,
+                'fingerprint': source.fingerprint,
+                'funding': source.funding,
+                'last4': source.last4,
+            }
+        self.payment_method_details = {
+            'type': source.type,
+            source.type: details,
+        }
         self.failure_code = None
         self.failure_message = None
         self.captured = capture
