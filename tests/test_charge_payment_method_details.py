@@ -14,7 +14,9 @@ def test_charge_carries_payment_method_details_for_a_card(faker):
         confirm=True,
     )
 
-    charge = stripe.PaymentIntent.retrieve(payment_intent.id)['charges']['data'][0]
+    # wagapi reads the charge from `charges`, which only exists before 2022-11-15.
+    charge = stripe.PaymentIntent.retrieve(
+        payment_intent.id, stripe_version='2018-11-08')['charges']['data'][0]
     details = charge['payment_method_details']
 
     assert details['type'] == 'card'
@@ -47,7 +49,8 @@ def test_charge_payment_method_details_match_the_payment_method(faker):
         confirm=True,
     )
 
-    charge = stripe.PaymentIntent.retrieve(payment_intent.id)['charges']['data'][0]
+    charge = stripe.PaymentIntent.retrieve(
+        payment_intent.id, stripe_version='2018-11-08')['charges']['data'][0]
 
     assert charge['payment_method'] == payment_method.id
     assert charge['payment_method_details']['card'].to_dict() == \

@@ -26,6 +26,11 @@ from decimal import Decimal, ROUND_HALF_UP
 from dateutil.relativedelta import relativedelta
 
 from .errors import UserError
+from .versions import CAPTURE_METHOD_DEFAULTS_TO_ASYNC, \
+    CHARGE_REFUNDS_EXPANDABLE, CUSTOMER_BALANCE_RENAMED, \
+    CUSTOMER_LISTS_EXPANDABLE, PARTIAL_CAPTURE_CREATES_NO_REFUND, \
+    PAYMENT_INTENT_CHARGES_REMOVED, PAYMENT_METHOD_TYPES_REMOVED, \
+    api_version_is_at_least, current_api_version
 from .webhooks import schedule_webhook
 
 # Save built-in keyword `type`, because some classes override it by using
@@ -224,6 +229,8 @@ class StripeObject(object):
                 else:
                     obj[prop] = value
 
+        self._apply_api_version(obj, {path.split('.')[0] for path in expand})
+
         def do_expand(path, obj):
             if type(obj) is list:
                 for i in obj:
@@ -231,10 +238,13 @@ class StripeObject(object):
             else:
                 k, path = path.split('.', 1) if '.' in path else (path, None)
                 if type(obj[k]) is str:
+                    # The rest of the path goes to the expanded object, which
+                    # keeps any field it hides unless that field is expanded.
                     id = obj[k]
                     cls = StripeObject._get_class_for_id(id)
-                    obj[k] = cls._api_retrieve(id)._export()
-                if path is not None and obj[k] is not None:
+                    obj[k] = cls._api_retrieve(id)._export(
+                        expand=[path] if path is not None else None)
+                elif path is not None and obj[k] is not None:
                     do_expand(path, obj[k])
 
         try:
@@ -244,6 +254,20 @@ class StripeObject(object):
             raise UserError(400, 'Bad expand %s' % e)
 
         return obj
+
+    def _apply_api_version(self, obj, expanded):
+        """Rewrite the exported fields whose shape depends on the API version.
+
+        `expanded` holds the top-level fields the request expands.
+        """
+        pass
+
+
+def reject_payment_method_types(payment_method_types):
+    if (payment_method_types is not None and
+            api_version_is_at_least(PAYMENT_METHOD_TYPES_REMOVED)):
+        raise UserError(400, 'payment_method_types is no longer supported',
+                        {'code': 'payment_method_types_no_longer_supported'})
 
 
 class DeletedObject(StripeObject):
@@ -458,6 +482,10 @@ class Card(StripeObject):
 class Charge(StripeObject):
     object = 'charge'
     _id_prefix = 'ch_'
+    # The part of the authorization a partial capture released without
+    # creating a Refund. A class attribute, so a store pickled before this
+    # field existed still loads.
+    _uncaptured_amount = 0
 
     def __init__(self, amount=None, currency=None, description=None,
                  metadata=None, customer=None, source=None, capture=True,
@@ -649,8 +677,10 @@ class Charge(StripeObject):
         def on_success_capture():
             self.captured = True
             if amount < self.amount:
-                refunded = self.amount - amount
-                Refund(charge=self.id, amount=refunded)
+                if api_version_is_at_least(PARTIAL_CAPTURE_CREATES_NO_REFUND):
+                    self._uncaptured_amount = self.amount - amount
+                else:
+                    Refund(charge=self.id, amount=self.amount - amount)
             if on_success:
                 on_success()
 
@@ -671,11 +701,16 @@ class Charge(StripeObject):
 
     @property
     def refunded(self):
-        return self.amount <= self.amount_refunded
+        return self.amount - self._uncaptured_amount <= self.amount_refunded
 
     @property
     def amount_captured(self):
-        return self.amount - self.amount_refunded
+        return self.amount - self._uncaptured_amount - self.amount_refunded
+
+    def _apply_api_version(self, obj, expanded):
+        if (api_version_is_at_least(CHARGE_REFUNDS_EXPANDABLE) and
+                'refunds' not in expanded):
+            del obj['refunds']
 
     @classmethod
     def _api_list_all(cls, url, customer=None, created=None, limit=10,
@@ -859,6 +894,14 @@ class Customer(StripeObject):
         elif self.default_source:
             return [s for s in self.sources._list
                     if s.id == self.default_source][0]
+
+    def _apply_api_version(self, obj, expanded):
+        if api_version_is_at_least(CUSTOMER_BALANCE_RENAMED):
+            obj['balance'] = obj.pop('account_balance')
+        if api_version_is_at_least(CUSTOMER_LISTS_EXPANDABLE):
+            for key in ('sources', 'subscriptions', 'tax_ids'):
+                if key not in expanded:
+                    del obj[key]
 
     @property
     def currency(self):
@@ -1145,7 +1188,7 @@ class Event(StripeObject):
 
         self.type = type
         self.data = {'object': data._export()}
-        self.api_version = '2017-08-15'
+        self.api_version = current_api_version()
 
     @classmethod
     def _api_create(cls, **data):
@@ -1968,6 +2011,8 @@ class PaymentIntent(StripeObject):
         if kwargs:
             raise UserError(400, 'Unexpected ' + ', '.join(kwargs.keys()))
 
+        reject_payment_method_types(payment_method_types)
+
         amount = try_convert_to_int(amount)
         try:
             # Invoices with amount == 0 don't create PaymentIntents:
@@ -2018,7 +2063,12 @@ class PaymentIntent(StripeObject):
         self.metadata = metadata or {}
         self.invoice = None
         self.next_action = None
-        self.capture_method = capture_method or 'automatic_async'
+        if capture_method is None:
+            capture_method = (
+                'automatic_async'
+                if api_version_is_at_least(CAPTURE_METHOD_DEFAULTS_TO_ASYNC)
+                else 'automatic')
+        self.capture_method = capture_method
         self.statement_descriptor_suffix = statement_descriptor_suffix
         self.description = description
         self.setup_future_usage = setup_future_usage
@@ -2102,6 +2152,13 @@ class PaymentIntent(StripeObject):
         if self.latest_charge is not None:
             charges._list = [self.latest_charge]
         return charges
+
+    def _apply_api_version(self, obj, expanded):
+        # Stripe returns `latest_charge` as an id on every API version.
+        if self.latest_charge is not None:
+            obj['latest_charge'] = self.latest_charge.id
+        if api_version_is_at_least(PAYMENT_INTENT_CHARGES_REMOVED):
+            del obj['charges']
 
     @property
     def last_payment_error(self):
@@ -2922,6 +2979,8 @@ class SetupIntent(StripeObject):
         if kwargs:
             raise UserError(400, 'Unexpected ' + ', '.join(kwargs.keys()))
 
+        reject_payment_method_types(payment_method_types)
+
         try:
             if customer is not None:
                 assert type(customer) is str and customer.startswith('cus_')
@@ -2947,6 +3006,11 @@ class SetupIntent(StripeObject):
         self.payment_method = None
         self.status = 'requires_payment_method'
         self.next_action = None
+
+    @classmethod
+    def _api_update(cls, id, **data):
+        reject_payment_method_types(data.get('payment_method_types'))
+        return super()._api_update(id, **data)
 
     @classmethod
     def _api_confirm(cls, id, use_stripe_sdk=None, client_secret=None,

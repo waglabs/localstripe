@@ -31,7 +31,10 @@ Features
 Limitations
 -----------
 
-- only the **latest version of Stripe API** is supported (on best effort)
+- the response shape follows the ``Stripe-Version`` request header only for
+  the changes listed in ``localstripe/versions.py``; a request without the
+  header gets ``2018-11-08``. Everything else follows the latest Stripe API
+  version (on best effort)
 - deprecated properties and features may or may not be supported
 - **no Stripe Connect support**: localstripe currently only supports Stripe
   Payments, and does not support Stripe Connect

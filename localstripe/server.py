@@ -28,6 +28,7 @@ from .resources import BalanceTransaction, Charge, Coupon, Customer, Event, \
     Product, Refund, SetupIntent, Source, Subscription, SubscriptionItem, \
     VerificationSession, TaxRate, Token, extra_apis, store
 from .errors import UserError
+from .versions import set_api_version
 from .webhooks import register_webhook
 
 
@@ -46,6 +47,12 @@ async def add_cors_headers(request, response):
             'Content-Type, Accept'
         response.headers['Access-Control-Allow-Methods'] = \
             'GET, POST, OPTIONS, DELETE'
+
+
+@web.middleware
+async def api_version_middleware(request, handler):
+    set_api_version(request.headers.get('Stripe-Version'))
+    return await handler(request)
 
 
 @web.middleware
@@ -202,8 +209,8 @@ async def save_store_middleware(request, handler):
             store.dump_to_disk()
 
 
-app = web.Application(middlewares=[error_middleware, auth_middleware,
-                                   save_store_middleware])
+app = web.Application(middlewares=[api_version_middleware, error_middleware,
+                                   auth_middleware, save_store_middleware])
 app.on_response_prepare.append(add_cors_headers)
 
 
