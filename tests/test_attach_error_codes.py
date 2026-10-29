@@ -1,7 +1,7 @@
 import pytest
 import json
 import stripe
-from stripe.error import CardError
+from stripe import CardError
 
 from . import create_customer
 
