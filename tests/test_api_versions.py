@@ -186,6 +186,28 @@ def test_a_setup_intent_still_returns_payment_method_types_on_2026_09_30():
     assert setup_intent['payment_method_types'] == ['card']
 
 
+def test_a_setup_intent_accepts_allowed_payment_method_types_on_every_version():
+    customer = create_customer_with_card()
+
+    for version in ('2018-11-08', '2020-08-27', '2026-09-30.endive'):
+        setup_intent = call('POST', '/v1/setup_intents', version,
+                            customer=customer,
+                            **{'allowed_payment_method_types[]': ['card']})
+
+        assert setup_intent.status_code == 200
+        assert setup_intent.json()['payment_method_types'] == ['card']
+        assert setup_intent.json()['allowed_payment_method_types'] == ['card']
+
+
+def test_a_setup_intent_without_allowed_payment_method_types_returns_null():
+    customer = create_customer_with_card()
+
+    setup_intent = call('POST', '/v1/setup_intents', '2026-09-30.endive',
+                        customer=customer).json()
+
+    assert setup_intent['allowed_payment_method_types'] is None
+
+
 def test_an_event_carries_the_version_of_the_request_that_caused_it():
     customer = call('POST', '/v1/customers', '2024-06-20').json()
 

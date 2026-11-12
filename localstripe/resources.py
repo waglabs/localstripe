@@ -2975,7 +2975,7 @@ class SetupIntent(StripeObject):
     _id_prefix = 'seti_'
 
     def __init__(self, customer=None, usage=None, payment_method_types=None,
-                 metadata=None, **kwargs):
+                 allowed_payment_method_types=None, metadata=None, **kwargs):
         if kwargs:
             raise UserError(400, 'Unexpected ' + ', '.join(kwargs.keys()))
 
@@ -2987,6 +2987,10 @@ class SetupIntent(StripeObject):
             if usage is None:
                 usage = 'off_session'
             assert usage in ('off_session', 'on_session')
+            # Stripe accepts allowed_payment_method_types on every version.
+            if allowed_payment_method_types is not None:
+                assert payment_method_types is None
+                payment_method_types = allowed_payment_method_types
             if payment_method_types is None:
                 payment_method_types = ['card']
             assert type(payment_method_types) is list
@@ -3003,6 +3007,7 @@ class SetupIntent(StripeObject):
         self.metadata = metadata or {}
         self.client_secret = self.id + '_secret_' + random_id(16)
         self.payment_method_types = payment_method_types
+        self.allowed_payment_method_types = allowed_payment_method_types
         self.payment_method = None
         self.status = 'requires_payment_method'
         self.next_action = None
