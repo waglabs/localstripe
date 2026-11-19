@@ -55,3 +55,19 @@ def test_charge_payment_method_details_match_the_payment_method(faker):
     assert charge['payment_method'] == payment_method.id
     assert charge['payment_method_details']['card'].to_dict() == \
         payment_method['card'].to_dict()
+
+
+def test_payment_method_card_carries_a_null_wallet():
+    payment_method = stripe.PaymentMethod.create(
+        type='card',
+        card={
+            'number': '4242424242424242',
+            'exp_month': 12,
+            'exp_year': 2030,
+            'cvc': '123',
+        },
+    )
+
+    # Real Stripe sends wallet as null, not absent, for a card typed in.
+    assert 'wallet' in payment_method['card']
+    assert payment_method['card']['wallet'] is None
