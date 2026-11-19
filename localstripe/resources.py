@@ -2378,6 +2378,8 @@ class PaymentMethod(StripeObject):
                 'fingerprint': fingerprint(self._card_number),
                 'funding': 'credit',
                 'three_d_secure_usage': {'supported': True},
+                # Stripe sends wallet on every card, null for a card typed in.
+                'wallet': None,
             }
         elif self.type == 'sepa_debit':
             self._sepa_debit_iban = \
